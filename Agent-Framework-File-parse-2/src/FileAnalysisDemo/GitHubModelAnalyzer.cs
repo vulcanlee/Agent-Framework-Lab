@@ -30,7 +30,7 @@ internal sealed class GitHubModelAnalyzer
         var agent = chatClient.AsAIAgent(
             name: "file-analyzer",
             instructions: BuildInstructions(fileInput),
-            description: "Analyzes a user prompt together with one file.");
+            description: "Analyzes a user prompt together with one file. 依照 ASME Y14.5 的規範來判斷工程圖, 是否不符核的地方");
 
         var session = await agent.CreateSessionAsync(cancellationToken: cancellationToken);
         var userMessage = new Microsoft.Extensions.AI.ChatMessage(ChatRole.User, fileInput.PromptContents.ToList());
@@ -49,7 +49,7 @@ internal sealed class GitHubModelAnalyzer
         var fileTypeLabel = fileInput.IsImage ? "image" : "UTF-8 text file";
 
         return $"""
-            You are a helpful analysis assistant.
+            你是ASME 發布的工程圖面標準專家.
             The user will provide a question that references a local file path, and the application will attach that {fileTypeLabel}.
             Use the file as primary evidence, be specific, and write the answer in Traditional Chinese.
             If the file is an image, comment on visible layout, labeling, spacing, or measurement issues.
