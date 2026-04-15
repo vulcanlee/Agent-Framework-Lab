@@ -1,0 +1,6 @@
+{
+  "partName": "Pump Mounting Plate",
+  "featureJson": "{\n  \"base\": { \"shape\": \"plate\", \"width\": 160, \"height\": 110, \"thickness\": 12 },\n  \"datums\": [\"A: bottom face\", \"B: left edge\", \"C: center slot axis\"],\n  \"features\": [\n    { \"type\": \"through_hole\", \"count\": 4, \"diameter\": 10, \"pattern\": \"rectangular\", \"location\": \"corners\" },\n    { \"type\": \"slot\", \"length\": 42, \"width\": 12, \"orientation\": \"horizontal\", \"location\": \"center\" },\n    { \"type\": \"counterbore\", \"count\": 2, \"diameter\": 18, \"depth\": 6, \"location\": \"top row\" }\n  ]\n}",
+  "dimensionData": "- Overall size: 160 x 110 x 12 mm\n- Corner hole pattern: 20 mm from side edges, 15 mm from top/bottom edges\n- Slot width: 12 mm\n- Slot center located from datum B only\n- Counterbore diameter: 18 mm, depth 6 mm\n- Counterbore pilot hole dimension repeated twice in notes\n- No explicit slot length tolerance\n- General tolerance: ISO 2768-mK",
+  "drawingNotes": "Machined steel plate. Use datum A for primary setup. Critical mounting holes should maintain positional accuracy to slot centerline. Avoid over-constraining non-critical exterior edges."
+}
