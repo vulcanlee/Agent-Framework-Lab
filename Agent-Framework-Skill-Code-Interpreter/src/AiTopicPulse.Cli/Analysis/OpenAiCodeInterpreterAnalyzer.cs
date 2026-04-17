@@ -15,23 +15,9 @@ public sealed class OpenAiCodeInterpreterAnalyzer(AppOptions options) : ITrendAn
         IStatusReporter statusReporter,
         CancellationToken cancellationToken)
     {
-        string prompt = CodeInterpreterPromptFactory.Create(dataset);
-
         OpenAIClient client = new(_options.OpenAIApiKey);
         ResponsesClient responsesClient = client.GetResponsesClient();
-        CodeInterpreterToolContainer container = new(
-            CodeInterpreterToolContainerConfiguration.CreateAutomaticContainerConfiguration([]));
-        CreateResponseOptions options = new()
-        {
-            Model = _options.Model,
-            Instructions = """
-                You are an AI topic analyst. When a JSON dataset is provided, you must use the code interpreter.
-                Parse the dataset in Python, deduplicate similar stories, rank them by recency and engagement,
-                and return Traditional Chinese markdown only.
-                """,
-            InputItems = { ResponseItem.CreateUserMessageItem(prompt) },
-            Tools = { ResponseTool.CreateCodeInterpreterTool(container) }
-        };
+        CreateResponseOptions options = CreateResponseOptions(_options, dataset);
 
         ResponseResult? response = null;
         await foreach (StreamingResponseUpdate update in responsesClient.CreateResponseStreamingAsync(options, cancellationToken))
@@ -57,6 +43,26 @@ public sealed class OpenAiCodeInterpreterAnalyzer(AppOptions options) : ITrendAn
             SuccessfulSources: dataset.SuccessfulSources,
             FailedSources: dataset.FailedSources,
             CodeInterpreterTranscript: transcript);
+    }
+
+    internal static CreateResponseOptions CreateResponseOptions(AppOptions appOptions, AnalysisDataset dataset)
+    {
+        string prompt = CodeInterpreterPromptFactory.Create(dataset);
+        CodeInterpreterToolContainer container = new(
+            CodeInterpreterToolContainerConfiguration.CreateAutomaticContainerConfiguration([]));
+
+        return new CreateResponseOptions
+        {
+            Model = appOptions.Model,
+            StreamingEnabled = true,
+            Instructions = """
+                You are an AI topic analyst. When a JSON dataset is provided, you must use the code interpreter.
+                Parse the dataset in Python, deduplicate similar stories, rank them by recency and engagement,
+                and return Traditional Chinese markdown only.
+                """,
+            InputItems = { ResponseItem.CreateUserMessageItem(prompt) },
+            Tools = { ResponseTool.CreateCodeInterpreterTool(container) }
+        };
     }
 
     private static string ExtractMarkdown(ResponseResult response)
