@@ -188,15 +188,15 @@ public class CliApplicationTests
                 {
                     Url = url,
                     Title = "台南車站",
-                    Summary = "可作為住宿與交通轉運節點。",
-                    Facts = ["交通便利，適合安排住宿區域。"]
+                    Summary = "台南交通資訊，可作為住宿與交通轉運節點。",
+                    Facts = ["台南交通便利，適合安排住宿區域。"]
                 }
                 : new VerifiedSource
                 {
                     Url = url,
                     Title = "阿堂鹹粥",
-                    Summary = "台南在地知名小吃。",
-                    Facts = ["阿堂鹹粥是台南熱門早午餐選項。"]
+                    Summary = "台南在地美食與老字號小吃。",
+                    Facts = ["阿堂鹹粥是台南在地美食熱門早午餐選項。"]
                 };
 
             return Task.FromResult(source);

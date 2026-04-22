@@ -39,12 +39,26 @@ public sealed class TravelPlannerEngine
             var queryPlan = BuildSearchQueryPlan(request);
 
             var sources = await VerifySourcesAsync(queryPlan, cancellationToken);
+            if (sources.Count == 0)
+            {
+                throw new InvalidOperationException("找不到足夠的可驗證來源，暫時無法產生可靠行程。");
+            }
 
-            Report(ProgressStage.SynthesizingItinerary, "正在整合已驗證資訊並生成行程...");
-            var plan = await ComposePlanAsync(request, sources, cancellationToken);
+            string output;
+            try
+            {
+                Report(ProgressStage.SynthesizingItinerary, "正在整合已驗證資訊並生成行程...");
+                var plan = await ComposePlanAsync(request, sources, cancellationToken);
 
-            Report(ProgressStage.FormattingChecklist, "正在整理旅遊行程建議清單...");
-            var output = _composer.Compose(plan, sources);
+                Report(ProgressStage.FormattingChecklist, "正在整理旅遊行程建議清單...");
+                output = _composer.Compose(plan, sources);
+            }
+            catch (Exception)
+            {
+                Report(ProgressStage.SynthesizingItinerary, "模型格式不穩定，改用已驗證來源整理建議清單...");
+                Report(ProgressStage.FormattingChecklist, "正在整理旅遊行程建議清單...");
+                output = _composer.ComposeFallback(request, sources);
+            }
 
             Report(ProgressStage.Completed, "旅遊行程建議清單已整理完成。");
             return output;
@@ -58,17 +72,34 @@ public sealed class TravelPlannerEngine
 
     public SearchQueryPlan BuildSearchQueryPlan(TravelRequest request)
     {
-        var basis = $"{request.Destination} {request.TravelStyle}".Trim();
-        var queries = new List<string>
-        {
-            $"{basis} 在地美食 最新資訊",
-            $"{request.Destination} 交通 官方 最新資訊",
-            $"{request.Destination} 住宿 區域 官方 最新資訊"
-        };
+        var destination = request.Destination.Trim();
+        var queries = new List<string>();
 
-        if (request.SpecialRequirements.Any(item => item.Contains("蛋塔", StringComparison.OrdinalIgnoreCase)))
+        AddQuery(queries, $"{destination} 在地美食 老字號 茶餐廳 最新資訊");
+        AddQuery(queries, $"{destination} 必吃 小吃 推薦 最新資訊");
+        AddQuery(queries, $"{destination} 交通 官方 最新資訊");
+        AddQuery(queries, $"{destination} 住宿 區域 官方 最新資訊");
+
+        foreach (var requirement in request.SpecialRequirements)
         {
-            queries.Add($"{request.Destination} 蛋塔 推薦 分店 最新資訊");
+            if (requirement.Contains("蛋塔", StringComparison.OrdinalIgnoreCase))
+            {
+                AddQuery(queries, $"{destination} 蛋塔 推薦 分店 最新資訊");
+                AddQuery(queries, $"{destination} egg tart best shops");
+            }
+
+            if (requirement.Contains("平民", StringComparison.OrdinalIgnoreCase) ||
+                requirement.Contains("在地", StringComparison.OrdinalIgnoreCase) ||
+                requirement.Contains("煙火氣", StringComparison.OrdinalIgnoreCase))
+            {
+                AddQuery(queries, $"{destination} local food guide");
+            }
+        }
+
+        if (destination.Contains("香港", StringComparison.OrdinalIgnoreCase))
+        {
+            AddQuery(queries, "site:discoverhongkong.com Hong Kong food guide");
+            AddQuery(queries, "site:mtr.com.hk Hong Kong transport");
         }
 
         return new SearchQueryPlan { Queries = queries };
@@ -112,7 +143,13 @@ public sealed class TravelPlannerEngine
 
                 try
                 {
-                    sources.Add(await _pageVerifier.VerifyAsync(candidate.Url, cancellationToken));
+                    var source = await _pageVerifier.VerifyAsync(candidate.Url, cancellationToken);
+                    if (!IsRelevantSource(query, candidate, source))
+                    {
+                        continue;
+                    }
+
+                    sources.Add(source);
                 }
                 catch
                 {
@@ -178,6 +215,11 @@ public sealed class TravelPlannerEngine
             return "交通";
         }
 
+        if (fact.Contains("餐", StringComparison.OrdinalIgnoreCase) || fact.Contains("蛋塔", StringComparison.OrdinalIgnoreCase))
+        {
+            return "餐飲";
+        }
+
         return "景點";
     }
 
@@ -204,7 +246,7 @@ public sealed class TravelPlannerEngine
                 item.Contains("另外", StringComparison.OrdinalIgnoreCase) ||
                 item.Contains("還需要", StringComparison.OrdinalIgnoreCase) ||
                 item.Contains("比較", StringComparison.OrdinalIgnoreCase) ||
-                item.Contains("推薦理由", StringComparison.OrdinalIgnoreCase)))
+                item.Contains("為什麼", StringComparison.OrdinalIgnoreCase)))
         {
             complexitySignals++;
         }
@@ -235,6 +277,80 @@ public sealed class TravelPlannerEngine
         ProgressDetailLevel detailLevel = ProgressDetailLevel.Normal)
     {
         _progressReporter.Report(new ProgressUpdate(stage, message, detailLevel));
+    }
+
+    private static void AddQuery(ICollection<string> queries, string query)
+    {
+        if (!string.IsNullOrWhiteSpace(query) && !queries.Contains(query, StringComparer.OrdinalIgnoreCase))
+        {
+            queries.Add(query);
+        }
+    }
+
+    private static bool IsRelevantSource(string query, SearchResult candidate, VerifiedSource source)
+    {
+        if (LooksSuspiciousSource(source))
+        {
+            return false;
+        }
+
+        var corpus = string.Join(
+            " ",
+            candidate.Title,
+            candidate.Url,
+            source.Title,
+            source.Url,
+            source.Summary,
+            string.Join(" ", source.Facts)).ToLowerInvariant();
+
+        var keywords = ExtractKeywords(query);
+        var matches = keywords.Count(keyword => corpus.Contains(keyword, StringComparison.OrdinalIgnoreCase));
+
+        return matches >= 2;
+    }
+
+    private static List<string> ExtractKeywords(string query)
+    {
+        var stopwords = new HashSet<string>(StringComparer.OrdinalIgnoreCase)
+        {
+            "最新資訊",
+            "官方",
+            "推薦",
+            "best",
+            "shops",
+            "shop",
+            "site",
+            "must",
+            "eat"
+        };
+
+        return query
+            .Split(' ', StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries)
+            .Select(token => token.Replace("site:", string.Empty, StringComparison.OrdinalIgnoreCase))
+            .Where(token => token.Length >= 2)
+            .Where(token => !stopwords.Contains(token))
+            .Distinct(StringComparer.OrdinalIgnoreCase)
+            .ToList();
+    }
+
+    private static bool LooksSuspiciousSource(VerifiedSource source)
+    {
+        if (source.Url.EndsWith(".pdf", StringComparison.OrdinalIgnoreCase))
+        {
+            return true;
+        }
+
+        if (Uri.TryCreate(source.Url, UriKind.Absolute, out var uri))
+        {
+            if (uri.Host.Contains("play.google.com", StringComparison.OrdinalIgnoreCase) ||
+                uri.Host.Contains("apps.apple.com", StringComparison.OrdinalIgnoreCase))
+            {
+                return true;
+            }
+        }
+
+        return source.Summary.Contains("沒有知識存在的荒原", StringComparison.OrdinalIgnoreCase) ||
+               source.Summary.Contains("没有知识存在的荒原", StringComparison.OrdinalIgnoreCase);
     }
 }
 

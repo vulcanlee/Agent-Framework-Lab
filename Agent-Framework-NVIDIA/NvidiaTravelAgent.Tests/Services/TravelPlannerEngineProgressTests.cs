@@ -112,6 +112,61 @@ public class TravelPlannerEngineProgressTests
         reporter.Updates.Should().Contain(update => update.Stage == ProgressStage.Failed);
     }
 
+    [Fact]
+    public async Task PlanAsync_throws_when_no_verified_sources_are_found()
+    {
+        var reporter = new RecordingProgressReporter();
+        var engine = new TravelPlannerEngine(
+            new FakeNvidiaChatClient(
+                new TravelRequest
+                {
+                    Destination = "香港",
+                    Days = 3,
+                    TravelStyle = "在地美食",
+                    TransportationPreference = "大眾運輸",
+                    Budget = "中高",
+                    SpecialRequirements = ["想吃蛋塔"]
+                },
+                CreatePlan()),
+            new EmptyWebSearchService(),
+            new FakeWebPageVerifier(),
+            new ItineraryComposer(),
+            reporter);
+
+        var action = () => engine.PlanAsync("三天兩夜香港美食行程");
+
+        await action.Should().ThrowAsync<InvalidOperationException>()
+            .WithMessage("*找不到足夠的可驗證來源*");
+        reporter.Updates.Should().Contain(update => update.Stage == ProgressStage.Failed);
+    }
+
+    [Fact]
+    public async Task PlanAsync_returns_fallback_checklist_when_travel_plan_generation_fails()
+    {
+        var reporter = new RecordingProgressReporter();
+        var engine = new TravelPlannerEngine(
+            new RequestOnlyNvidiaChatClient(new TravelRequest
+            {
+                Destination = "香港",
+                Days = 3,
+                TravelStyle = "在地美食",
+                TransportationPreference = "大眾運輸",
+                Budget = "中高",
+                SpecialRequirements = ["想找蛋塔與平民餐飲"]
+            }),
+            new FakeWebSearchService(),
+            new FakeWebPageVerifier(),
+            new ItineraryComposer(),
+            reporter);
+
+        var output = await engine.PlanAsync("三天兩夜香港美食行程");
+
+        output.Should().Contain("# 旅遊行程建議清單");
+        output.Should().Contain("阿堂鹹粥");
+        output.Should().Contain("根據已驗證來源整理");
+        reporter.Updates.Should().Contain(update => update.Stage == ProgressStage.Completed);
+    }
+
     private static TravelPlannerEngine CreateEngine(RecordingProgressReporter reporter, TravelRequest request)
     {
         return new TravelPlannerEngine(
@@ -178,6 +233,26 @@ public class TravelPlannerEngineProgressTests
         }
     }
 
+    private sealed class RequestOnlyNvidiaChatClient : INvidiaChatClient
+    {
+        private readonly TravelRequest _request;
+
+        public RequestOnlyNvidiaChatClient(TravelRequest request)
+        {
+            _request = request;
+        }
+
+        public Task<T> CompleteJsonAsync<T>(IReadOnlyList<LlmMessage> messages, CancellationToken cancellationToken = default)
+        {
+            if (typeof(T) == typeof(TravelRequest))
+            {
+                return Task.FromResult((T)(object)_request);
+            }
+
+            throw new ModelOutputException("行程生成失敗，模型回傳格式不符合預期，請稍後再試。");
+        }
+    }
+
     private sealed class FakeWebSearchService : IWebSearchService
     {
         public Task<IReadOnlyList<SearchResult>> SearchAsync(string query, CancellationToken cancellationToken = default)
@@ -198,6 +273,12 @@ public class TravelPlannerEngineProgressTests
             => throw new InvalidOperationException("搜尋失敗");
     }
 
+    private sealed class EmptyWebSearchService : IWebSearchService
+    {
+        public Task<IReadOnlyList<SearchResult>> SearchAsync(string query, CancellationToken cancellationToken = default)
+            => Task.FromResult<IReadOnlyList<SearchResult>>([]);
+    }
+
     private sealed class FakeWebPageVerifier : IWebPageVerifier
     {
         public Task<VerifiedSource> VerifyAsync(string url, CancellationToken cancellationToken = default)
@@ -207,15 +288,15 @@ public class TravelPlannerEngineProgressTests
                 {
                     Url = url,
                     Title = "台南車站",
-                    Summary = "可作為住宿與交通轉運節點。",
-                    Facts = ["交通便利，適合安排住宿區域。"]
+                    Summary = "台南交通資訊，可作為住宿與交通轉運節點。",
+                    Facts = ["台南交通便利，適合安排住宿區域。"]
                 }
                 : new VerifiedSource
                 {
                     Url = url,
                     Title = "阿堂鹹粥",
-                    Summary = "台南在地知名小吃。",
-                    Facts = ["阿堂鹹粥是台南熱門早午餐選項。"]
+                    Summary = "台南在地美食與老字號小吃。",
+                    Facts = ["阿堂鹹粥是台南在地美食熱門早午餐選項。"]
                 };
 
             return Task.FromResult(source);
