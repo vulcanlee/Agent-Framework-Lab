@@ -14,9 +14,10 @@ public class TravelPlannerAgentTests
         var session = await CreateSessionAsync();
         var agent = CreateAgent();
 
-        var response = await agent.RunAsync("三天兩夜台南美食散步，不自駕", session);
+        var response = await agent.RunAsync("請規劃三天兩夜台南美食散步行程", session);
 
-        response.Text.Should().Contain("來源清單");
+        response.Text.Should().Contain("# 旅遊行程建議清單");
+        response.Text.Should().Contain("## 資訊來源");
         session.TryGetInMemoryChatHistory(out var messages).Should().BeTrue();
         messages.Should().HaveCountGreaterThan(0);
     }
@@ -62,31 +63,31 @@ public class TravelPlannerAgentTests
                     TravelStyle = "美食散步",
                     TransportationPreference = "大眾運輸",
                     Budget = "中等",
-                    SpecialRequirements = ["不自駕"]
+                    SpecialRequirements = ["想吃在地小吃"]
                 }
                 : new TravelPlan
                 {
-                    Summary = "三天兩夜台南美食散步旅行",
+                    Summary = "以台南在地小吃與老城區散步為主的三天兩夜行程。",
                     DailyPlans =
                     [
                         new DailyPlan
                         {
                             Day = 1,
-                            Theme = "古蹟散步",
+                            Theme = "國華街與周邊小吃",
                             Items =
                             [
                                 new ItineraryItem
                                 {
-                                    Category = "景點",
-                                    Name = "赤崁樓",
-                                    Description = "上午從赤崁樓開始"
+                                    Category = "餐飲",
+                                    Name = "阿堂鹹粥",
+                                    Description = "安排早午餐時段前往，體驗台南代表性鹹粥。"
                                 }
                             ]
                         }
                     ],
-                    TransportationNotes = ["步行與公車為主"],
-                    AccommodationNotes = ["建議住台南火車站周邊"],
-                    Cautions = ["旺季需提早訂房"]
+                    TransportationNotes = ["建議搭配步行與公車移動。"],
+                    AccommodationNotes = ["住宿可優先考慮台南車站或中西區周邊。"],
+                    Cautions = ["熱門店家可能需要排隊，建議避開尖峰時段。"]
                 };
 
             return Task.FromResult((T)result);
@@ -99,8 +100,8 @@ public class TravelPlannerAgentTests
         {
             IReadOnlyList<SearchResult> results =
             [
-                new SearchResult("台南旅遊網", "https://www.twtainan.net/attractions/detail/123"),
-                new SearchResult("台鐵", "https://www.railway.gov.tw/tra-tip-web/tip")
+                new SearchResult("阿堂鹹粥", "https://example.com/food"),
+                new SearchResult("台南車站", "https://example.com/transport")
             ];
 
             return Task.FromResult(results);
@@ -111,18 +112,21 @@ public class TravelPlannerAgentTests
     {
         public Task<VerifiedSource> VerifyAsync(string url, CancellationToken cancellationToken = default)
         {
-            var source = new VerifiedSource
-            {
-                Url = url,
-                Title = url.Contains("railway", StringComparison.OrdinalIgnoreCase) ? "台鐵官網" : "台南旅遊網",
-                Summary = "已驗證的旅遊資料",
-                Facts =
-                [
-                    url.Contains("railway", StringComparison.OrdinalIgnoreCase)
-                        ? "可搭乘台鐵進出台南"
-                        : "赤崁樓位於台南市中西區"
-                ]
-            };
+            var source = url.Contains("transport", StringComparison.OrdinalIgnoreCase)
+                ? new VerifiedSource
+                {
+                    Url = url,
+                    Title = "台南車站",
+                    Summary = "可作為住宿與交通轉運節點。",
+                    Facts = ["交通便利，適合安排住宿區域。"]
+                }
+                : new VerifiedSource
+                {
+                    Url = url,
+                    Title = "阿堂鹹粥",
+                    Summary = "台南在地知名小吃。",
+                    Facts = ["阿堂鹹粥是台南熱門早午餐選項。"]
+                };
 
             return Task.FromResult(source);
         }

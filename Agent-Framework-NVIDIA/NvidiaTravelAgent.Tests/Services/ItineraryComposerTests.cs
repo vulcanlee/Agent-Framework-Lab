@@ -11,20 +11,20 @@ public class ItineraryComposerTests
     {
         var plan = new TravelPlan
         {
-            Summary = "三天兩夜台南散步旅行",
+            Summary = "台南在地小吃行程。",
             DailyPlans =
             [
                 new DailyPlan
                 {
                     Day = 1,
-                    Theme = "古蹟與小吃",
+                    Theme = "早餐散步",
                     Items =
                     [
                         new ItineraryItem
                         {
-                            Category = "景點",
-                            Name = "赤崁樓",
-                            Description = "上午造訪赤崁樓"
+                            Category = "餐飲",
+                            Name = "阿堂鹹粥",
+                            Description = "安排早餐時段前往。"
                         }
                     ]
                 }
@@ -37,6 +37,6 @@ public class ItineraryComposerTests
 
         action.Should()
             .Throw<InvalidOperationException>()
-            .WithMessage("*赤崁樓*");
+            .WithMessage("*阿堂鹹粥*");
     }
 }

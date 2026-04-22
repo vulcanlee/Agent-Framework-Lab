@@ -11,14 +11,14 @@ public class TravelRequestTests
     {
         const string json = """
             {
-              "destination": "台南",
+              "destination": "香港",
               "days": 3,
-              "travelStyle": "美食散步",
+              "travelStyle": "在地美食與散步",
               "transportationPreference": "大眾運輸",
-              "budget": "中等",
+              "budget": "中高",
               "specialRequirements": [
-                "不自駕",
-                "喜歡老街與小吃"
+                "想吃平民餐飲",
+                "需要購買蛋塔外帶回飯店"
               ]
             }
             """;
@@ -26,8 +26,8 @@ public class TravelRequestTests
         var request = JsonSerializer.Deserialize<TravelRequest>(json, TravelRequestSerializer.Options);
 
         request.Should().NotBeNull();
-        request!.Destination.Should().Be("台南");
+        request!.Destination.Should().Be("香港");
         request.Days.Should().Be(3);
-        request.SpecialRequirements.Should().Contain("不自駕");
+        request.SpecialRequirements.Should().Contain("需要購買蛋塔外帶回飯店");
     }
 }

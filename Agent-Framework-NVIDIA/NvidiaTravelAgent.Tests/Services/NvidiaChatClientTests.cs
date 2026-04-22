@@ -17,16 +17,16 @@ public class NvidiaChatClientTests
             {
               "destination": "香港",
               "days": 3,
-              "travelStyle": "在地小吃",
+              "travelStyle": "在地美食",
               "transportationPreference": "大眾運輸",
               "budget": "中等",
-              "specialRequirements": "想外帶蛋塔回飯店"
+              "specialRequirements": "需要購買蛋塔"
             }
             """);
 
         var result = await client.CompleteJsonAsync<TravelRequest>(CreateMessages());
 
-        result.SpecialRequirements.Should().Equal("想外帶蛋塔回飯店");
+        result.SpecialRequirements.Should().Equal("需要購買蛋塔");
     }
 
     [Fact]
@@ -36,12 +36,12 @@ public class NvidiaChatClientTests
             {
               "destination": "香港",
               "days": 3,
-              "travelStyle": "在地小吃",
+              "travelStyle": "在地美食",
               "transportationPreference": "大眾運輸",
               "budget": "中等",
               "specialRequirements": {
                 "focus": "蛋塔",
-                "note": "想買多家比較"
+                "note": "想外帶回飯店"
               }
             }
             """);
@@ -50,7 +50,7 @@ public class NvidiaChatClientTests
 
         result.SpecialRequirements.Should().ContainSingle();
         result.SpecialRequirements[0].Should().Contain("蛋塔");
-        result.SpecialRequirements[0].Should().Contain("想買多家比較");
+        result.SpecialRequirements[0].Should().Contain("外帶回飯店");
     }
 
     [Fact]
@@ -58,25 +58,25 @@ public class NvidiaChatClientTests
     {
         var client = CreateClient("""
             {
-              "summary": "三天兩夜香港美食行程",
+              "summary": "香港三天兩夜在地美食行程",
               "dailyPlans": [
                 {
                   "day": 1,
-                  "theme": "老店巡禮",
+                  "theme": "港島老店",
                   "items": null
                 }
               ],
-              "transportationNotes": "八達通搭地鐵最方便",
-              "accommodationNotes": "建議住尖沙咀一帶",
-              "cautions": "熱門蛋塔店可能提早賣完"
+              "transportationNotes": "建議使用港鐵移動",
+              "accommodationNotes": "住宿可考慮尖沙咀一帶",
+              "cautions": "熱門店家需要排隊"
             }
             """);
 
         var result = await client.CompleteJsonAsync<TravelPlan>(CreateMessages());
 
-        result.TransportationNotes.Should().Equal("八達通搭地鐵最方便");
-        result.AccommodationNotes.Should().Equal("建議住尖沙咀一帶");
-        result.Cautions.Should().Equal("熱門蛋塔店可能提早賣完");
+        result.TransportationNotes.Should().Equal("建議使用港鐵移動");
+        result.AccommodationNotes.Should().Equal("住宿可考慮尖沙咀一帶");
+        result.Cautions.Should().Equal("熱門店家需要排隊");
         result.DailyPlans[0].Items.Should().BeEmpty();
     }
 
@@ -87,27 +87,27 @@ public class NvidiaChatClientTests
             """
             {
               "days": 3,
-              "travelStyle": "在地小吃",
+              "travelStyle": "在地美食",
               "transportationPreference": "大眾運輸",
               "budget": "中等",
-              "specialRequirements": "想買蛋塔"
+              "specialRequirements": "需要購買蛋塔"
             }
             """,
             """
             {
               "destination": "香港",
               "days": 3,
-              "travelStyle": "在地小吃",
+              "travelStyle": "在地美食",
               "transportationPreference": "大眾運輸",
               "budget": "中等",
-              "specialRequirements": ["想買蛋塔"]
+              "specialRequirements": ["需要購買蛋塔"]
             }
             """);
 
         var result = await client.CompleteJsonAsync<TravelRequest>(CreateMessages());
 
         result.Destination.Should().Be("香港");
-        result.SpecialRequirements.Should().Equal("想買蛋塔");
+        result.SpecialRequirements.Should().Equal("需要購買蛋塔");
     }
 
     [Fact]
@@ -151,10 +151,10 @@ public class NvidiaChatClientTests
     }
 
     private static IReadOnlyList<LlmMessage> CreateMessages() =>
-        [
-            new LlmMessage("system", "只輸出 JSON"),
-            new LlmMessage("user", "請解析需求")
-        ];
+    [
+        new LlmMessage("system", "請輸出 JSON"),
+        new LlmMessage("user", "請整理旅遊需求")
+    ];
 
     private sealed class QueueMessageHandler : HttpMessageHandler
     {

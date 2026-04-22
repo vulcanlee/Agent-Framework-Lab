@@ -1,18 +1,19 @@
 using NvidiaTravelAgent.Agents;
 using NvidiaTravelAgent.Configuration;
+using NvidiaTravelAgent.Progress;
 using NvidiaTravelAgent.Services;
 using System.Text;
 
 var exitCode = await CliApplication.RunAsync(args, new SystemConsole(), CreateAgent, CancellationToken.None);
 return exitCode;
 
-static TravelPlannerAgent CreateAgent(AppOptions options)
+static TravelPlannerAgent CreateAgent(AppOptions options, IProgressReporter progressReporter)
 {
     var httpClient = new HttpClient();
     var llm = new NvidiaChatClient(httpClient, options);
     var search = new WebSearchService(httpClient);
     var verifier = new WebPageVerifier(httpClient);
-    var planner = new TravelPlannerEngine(llm, search, verifier, new ItineraryComposer());
+    var planner = new TravelPlannerEngine(llm, search, verifier, new ItineraryComposer(), progressReporter);
     return new TravelPlannerAgent(planner);
 }
 
@@ -54,7 +55,7 @@ internal static class CliApplication
     internal static async Task<int> RunAsync(
         string[] args,
         IAppConsole console,
-        Func<AppOptions, TravelPlannerAgent> agentFactory,
+        Func<AppOptions, IProgressReporter, TravelPlannerAgent> agentFactory,
         CancellationToken cancellationToken)
     {
         console.InputEncoding = Encoding.UTF8;
@@ -73,23 +74,24 @@ internal static class CliApplication
         }
 
         var options = AppOptions.FromEnvironment(Environment.GetEnvironmentVariable);
-        var agent = agentFactory(options);
+        var progressReporter = new ConsoleProgressReporter(console);
+        var agent = agentFactory(options, progressReporter);
 
         return command switch
         {
             "plan" => await RunPlanAsync(agent, args.Skip(1).ToArray(), console, cancellationToken),
-            "repl" => await RunReplAsync(console, _ => agent, cancellationToken),
+            "repl" => await RunReplAsync(console, (_, _) => agent, cancellationToken),
             _ => UnknownCommand(command, console)
         };
     }
 
-    private static TravelPlannerAgent CreateDefaultAgent(AppOptions options)
+    private static TravelPlannerAgent CreateDefaultAgent(AppOptions options, IProgressReporter progressReporter)
     {
         var httpClient = new HttpClient();
         var llm = new NvidiaChatClient(httpClient, options);
         var search = new WebSearchService(httpClient);
         var verifier = new WebPageVerifier(httpClient);
-        var planner = new TravelPlannerEngine(llm, search, verifier, new ItineraryComposer());
+        var planner = new TravelPlannerEngine(llm, search, verifier, new ItineraryComposer(), progressReporter);
         return new TravelPlannerAgent(planner);
     }
 
@@ -102,7 +104,7 @@ internal static class CliApplication
         var request = ReadRequest(args);
         if (string.IsNullOrWhiteSpace(request))
         {
-            console.WriteErrorLine("請使用 --request 提供旅遊需求描述。");
+            console.WriteErrorLine("請使用 --request 提供旅遊需求。");
             return 1;
         }
 
@@ -117,18 +119,24 @@ internal static class CliApplication
             console.WriteErrorLine(ex.Message);
             return 1;
         }
+        catch (Exception)
+        {
+            console.WriteErrorLine("行程生成失敗，請稍後再試。");
+            return 1;
+        }
     }
 
     private static async Task<int> RunReplAsync(
         IAppConsole console,
-        Func<AppOptions, TravelPlannerAgent> agentFactory,
+        Func<AppOptions, IProgressReporter, TravelPlannerAgent> agentFactory,
         CancellationToken cancellationToken)
     {
         console.WriteLine("NVIDIA Travel Agent REPL");
         console.WriteLine("輸入需求開始規劃，輸入 reset 清空目前對話，輸入 exit 離開。");
 
         var options = AppOptions.FromEnvironment(Environment.GetEnvironmentVariable);
-        var agent = agentFactory(options);
+        var progressReporter = new ConsoleProgressReporter(console);
+        var agent = agentFactory(options, progressReporter);
         var session = await agent.CreateSessionAsync(cancellationToken);
 
         while (true)
@@ -150,7 +158,7 @@ internal static class CliApplication
             if (string.Equals(input, "reset", StringComparison.OrdinalIgnoreCase))
             {
                 TravelPlannerAgent.ResetSession(session);
-                console.WriteLine("已清空目前對話。");
+                console.WriteLine("目前對話已重設。");
                 continue;
             }
 
@@ -167,6 +175,10 @@ internal static class CliApplication
             catch (ModelOutputException ex)
             {
                 console.WriteErrorLine(ex.Message);
+            }
+            catch (Exception)
+            {
+                console.WriteErrorLine("行程生成失敗，請稍後再試。");
             }
         }
     }
@@ -186,16 +198,31 @@ internal static class CliApplication
 
     private static int UnknownCommand(string command, IAppConsole console)
     {
-        console.WriteErrorLine($"未知命令: {command}");
+        console.WriteErrorLine($"未知命令：{command}");
         PrintHelp(console);
         return 1;
     }
 
     private static void PrintHelp(IAppConsole console)
     {
-        console.WriteLine("用法:");
+        console.WriteLine("用法：");
         console.WriteLine("  dotnet run --project .\\NvidiaTravelAgent\\NvidiaTravelAgent.csproj");
         console.WriteLine("  dotnet run --project .\\NvidiaTravelAgent\\NvidiaTravelAgent.csproj -- repl");
         console.WriteLine("  dotnet run --project .\\NvidiaTravelAgent\\NvidiaTravelAgent.csproj -- plan --request \"三天兩夜台南美食散步，不自駕，預算中等\"");
+    }
+}
+
+internal sealed class ConsoleProgressReporter : IProgressReporter
+{
+    private readonly IAppConsole _console;
+
+    public ConsoleProgressReporter(IAppConsole console)
+    {
+        _console = console;
+    }
+
+    public void Report(ProgressUpdate update)
+    {
+        _console.WriteLine($"[進度] {update.Message}");
     }
 }

@@ -6,30 +6,32 @@ namespace NvidiaTravelAgent.Tests.Configuration;
 public class AppOptionsTests
 {
     [Fact]
-    public void FromEnvironment_prefers_Navidia_Vulcan()
+    public void FromEnvironment_prefers_github_token_when_present()
     {
         var values = new Dictionary<string, string?>
         {
-            ["Navidia_Vulcan"] = "primary-key",
-            ["NVIDIA_API_KEY"] = "fallback-key",
+            ["GITHUB_TOKEN"] = "github-key",
+            ["Navidia_Vulcan"] = "nvidia-key",
+            ["NVIDIA_API_KEY"] = "fallback-key"
         };
 
         var options = AppOptions.FromEnvironment(name => values.TryGetValue(name, out var value) ? value : null);
 
-        options.NvidiaApiKey.Should().Be("primary-key");
+        options.NvidiaApiKey.Should().Be("github-key");
     }
 
     [Fact]
-    public void FromEnvironment_uses_fallback_when_primary_is_missing()
+    public void FromEnvironment_uses_navidia_vulcan_when_github_token_is_missing()
     {
         var values = new Dictionary<string, string?>
         {
-            ["NVIDIA_API_KEY"] = "fallback-key",
+            ["Navidia_Vulcan"] = "nvidia-key",
+            ["NVIDIA_API_KEY"] = "fallback-key"
         };
 
         var options = AppOptions.FromEnvironment(name => values.TryGetValue(name, out var value) ? value : null);
 
-        options.NvidiaApiKey.Should().Be("fallback-key");
+        options.NvidiaApiKey.Should().Be("nvidia-key");
     }
 
     [Fact]
@@ -39,6 +41,6 @@ public class AppOptionsTests
 
         action.Should()
             .Throw<InvalidOperationException>()
-            .WithMessage("*Navidia_Vulcan*");
+            .WithMessage("*GITHUB_TOKEN*");
     }
 }

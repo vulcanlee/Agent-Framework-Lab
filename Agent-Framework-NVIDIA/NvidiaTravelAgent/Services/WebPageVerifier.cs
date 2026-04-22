@@ -6,7 +6,10 @@ namespace NvidiaTravelAgent.Services;
 
 public sealed class WebPageVerifier : IWebPageVerifier
 {
-    private static readonly Regex FactRegex = new("(開放時間|地址|交通|票價|住宿|位於|營業時間|電話|班次)", RegexOptions.Compiled);
+    private static readonly Regex FactRegex = new(
+        "(營業|地址|交通|住宿|票價|開放|分店|菜單|推薦|外帶)",
+        RegexOptions.Compiled);
+
     private readonly HttpClient? _httpClient;
     private readonly HtmlParser _parser = new();
 
@@ -23,7 +26,7 @@ public sealed class WebPageVerifier : IWebPageVerifier
     {
         if (_httpClient is null)
         {
-            throw new InvalidOperationException("未提供 HttpClient，無法下載網頁內容。");
+            throw new InvalidOperationException("尚未提供 HttpClient，無法抓取遠端網頁。");
         }
 
         var html = await _httpClient.GetStringAsync(url, cancellationToken);

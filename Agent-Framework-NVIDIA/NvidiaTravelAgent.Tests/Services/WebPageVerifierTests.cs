@@ -11,14 +11,14 @@ public class WebPageVerifierTests
         const string html = """
             <html>
             <head>
-              <title>赤崁樓 | 台南旅遊網</title>
-              <meta name="description" content="赤崁樓是台南知名古蹟景點。" />
+              <title>泰昌餅家 | 香港蛋塔名店</title>
+              <meta name="description" content="泰昌餅家以蛋塔聞名，是香港常見的外帶點心店。" />
             </head>
             <body>
               <main>
-                <p>赤崁樓位於台南市中西區，是熱門觀光景點。</p>
-                <p>開放時間：08:30-21:30。</p>
-                <p>地址：台南市中西區民族路二段212號。</p>
+                <p>泰昌餅家的蛋塔是香港常見的外帶甜點選項。</p>
+                <p>營業時間為每日 08:30-21:30。</p>
+                <p>地址位於中環，方便搭配港島美食動線安排。</p>
               </main>
             </body>
             </html>
@@ -26,11 +26,11 @@ public class WebPageVerifierTests
 
         var verifier = new WebPageVerifier();
 
-        var page = await verifier.VerifyHtmlAsync("https://www.twtainan.net/attractions/detail/123", html, CancellationToken.None);
+        var page = await verifier.VerifyHtmlAsync("https://example.com/hk-egg-tart", html, CancellationToken.None);
 
-        page.Title.Should().Be("赤崁樓 | 台南旅遊網");
-        page.Summary.Should().Contain("赤崁樓");
-        page.Facts.Should().Contain(x => x.Contains("開放時間"));
+        page.Title.Should().Be("泰昌餅家 | 香港蛋塔名店");
+        page.Summary.Should().Contain("蛋塔");
+        page.Facts.Should().Contain(x => x.Contains("營業時間"));
         page.Facts.Should().Contain(x => x.Contains("地址"));
     }
 }

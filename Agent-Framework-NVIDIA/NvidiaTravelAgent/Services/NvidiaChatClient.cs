@@ -31,13 +31,13 @@ public sealed class NvidiaChatClient : INvidiaChatClient
                 lastContent = await SendChatCompletionAsync(workingMessages, cancellationToken);
                 var json = ExtractJson(lastContent);
                 var root = JsonNode.Parse(json) as JsonObject
-                    ?? throw new InvalidOperationException("模型回傳的內容不是有效的 JSON 物件。");
+                    ?? throw new InvalidOperationException("模型回傳內容不是有效的 JSON 物件。");
 
                 var normalized = ModelJsonNormalizer.NormalizeFor<T>(root);
                 ModelJsonNormalizer.ValidateRequiredFields<T>(normalized);
 
                 return JsonSerializer.Deserialize<T>(normalized.ToJsonString(), TravelRequestSerializer.Options)
-                    ?? throw new InvalidOperationException("無法將模型回傳內容轉換為目標型別。");
+                    ?? throw new InvalidOperationException("模型回傳 JSON 無法轉換為目標型別。");
             }
             catch (Exception ex) when (ex is JsonException or InvalidOperationException)
             {
@@ -75,10 +75,10 @@ public sealed class NvidiaChatClient : INvidiaChatClient
         response.EnsureSuccessStatusCode();
 
         var payload = await response.Content.ReadFromJsonAsync<JsonObject>(cancellationToken: cancellationToken)
-            ?? throw new InvalidOperationException("NVIDIA 回應為空。");
+            ?? throw new InvalidOperationException("模型服務沒有回傳內容。");
 
         return payload["choices"]?[0]?["message"]?["content"]?.GetValue<string>()
-            ?? throw new InvalidOperationException("NVIDIA 回應不包含 choices[0].message.content。");
+            ?? throw new InvalidOperationException("模型回應缺少 choices[0].message.content。");
     }
 
     private static List<LlmMessage> BuildRepairMessages<T>(IReadOnlyList<LlmMessage> originalMessages, string? lastContent, Exception ex)
@@ -88,11 +88,11 @@ public sealed class NvidiaChatClient : INvidiaChatClient
             .. originalMessages,
             new LlmMessage("assistant", lastContent ?? string.Empty),
             new LlmMessage("user", $"""
-                你上一個回應的 JSON 無法解析，請只重新輸出合法 JSON，不要加入任何說明文字。
+                你上一則回覆的 JSON 格式不符合要求，請重新輸出完全合法的 JSON。
                 錯誤原因：{ex.Message}
-                目標 schema：
+                正確 schema：
                 {GetSchemaDescription<T>()}
-                請特別注意所有應為字串陣列的欄位必須使用 JSON array。
+                請只輸出 JSON，陣列欄位必須真的輸出為 JSON array。
                 """)
         ];
     }
@@ -138,14 +138,14 @@ public sealed class NvidiaChatClient : INvidiaChatClient
                 """;
         }
 
-        return "請輸出合法 JSON。";
+        return "請輸出符合目標型別的 JSON。";
     }
 
     private static string GetFailureMessage<T>()
     {
         if (typeof(T).Name == "TravelRequest")
         {
-            return "需求解析失敗，請稍微簡化描述後重試。";
+            return "需求解析失敗，請稍微簡化描述或重試。";
         }
 
         if (typeof(T).Name == "TravelPlan")
@@ -153,7 +153,7 @@ public sealed class NvidiaChatClient : INvidiaChatClient
             return "行程生成失敗，模型回傳格式不符合預期，請稍後再試。";
         }
 
-        return "模型回傳格式不符合預期。";
+        return "模型輸出格式不符合預期。";
     }
 
     private static string ExtractJson(string content)

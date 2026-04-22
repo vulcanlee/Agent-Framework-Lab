@@ -1,56 +1,43 @@
 # NVIDIA Travel Agent
 
-這是一個以 `C# Console` 撰寫的 Microsoft Agent Framework 範例專案，示範如何串接 NVIDIA 免費模型資源 `meta/llama-4-maverick-17b-128e-instruct`，打造一個可用 `CLI` 或 `REPL` 操作的旅遊行程規劃 Agent。
+這是一個用 `C# Console` 實作的旅遊規劃 Agent 範例，介面採用 `CLI` / `REPL`，核心流程會先分析需求、判斷規劃策略、搜尋網路最新資訊、驗證來源，再整理成一份附來源的旅遊行程建議清單。
 
-Agent 的核心原則很單純：
-
-- 使用者先用自然語言描述需求
-- 程式先把需求結構化
-- 再搜尋網路上的最新公開資訊
-- 驗證景點、交通、住宿等資訊是否真的存在
-- 最後只根據已驗證資訊生成行程
-
-未驗證的資訊不會被放進最終輸出。
+目前程式預設使用 [GitHub Models](https://models.github.ai/inference/) 相容端點，仍保留 NVIDIA API key 命名的相容讀取方式，方便切換模型供應商時重用既有環境變數設定。
 
 ## 功能特色
 
-- 採用 Microsoft Agent Framework 的自訂 `AIAgent`
-- 使用 NVIDIA Chat Completions API，不依賴額外搜尋 API Key
-- 支援 `plan` 單次輸出模式
-- 支援 `repl` 連續對話模式
-- 無參數時預設直接進入 REPL
-- 若執行環境沒有互動式標準輸入，REPL 會顯示提示後結束
-- 模型輸出會經過 schema normalization，並在必要時自動重試一次
-- 最終輸出固定包含來源清單
+- 支援 `plan` 與 `repl` 兩種使用方式
+- 執行中會在螢幕顯示簡潔進度，例如分析需求、搜尋資料、驗證來源、整理清單
+- 模型輸出會先做 schema normalization，再進行一次自動重試
+- 最終輸出固定為 Markdown 格式的旅遊行程建議清單
+- 行程中的景點、交通、住宿與餐飲資訊必須能對應到已驗證來源
 
-## 環境需求
+## 環境變數
 
-- .NET SDK 9.0 以上
-- 可連外網路
-- NVIDIA API Key
+程式會依序讀取以下 API key：
 
-請先設定環境變數，優先使用 `Navidia_Vulcan`：
+1. `GITHUB_TOKEN`
+2. `Navidia_Vulcan`
+3. `NVIDIA_API_KEY`
 
-```powershell
-$env:Navidia_Vulcan="your-nvidia-api-key"
-```
-
-若未設定，程式會嘗試使用：
+PowerShell 範例：
 
 ```powershell
-$env:NVIDIA_API_KEY="your-nvidia-api-key"
+$env:GITHUB_TOKEN="your-github-models-token"
 ```
 
-## 快速開始
+如果你要改回 NVIDIA 端點，可以調整 [AppOptions.cs](/C:/Vulcan/Projects/Agent-Framework-Lab/Agent-Framework-NVIDIA/NvidiaTravelAgent/Configuration/AppOptions.cs) 的 `Model` 與 `BaseUri` 預設值。
 
-安裝與建置：
+## 執行方式
+
+還原與建置：
 
 ```powershell
 dotnet restore .\NvidiaTravelAgent.slnx
 dotnet build .\NvidiaTravelAgent.slnx
 ```
 
-直接啟動 REPL：
+預設進入 REPL：
 
 ```powershell
 dotnet run --project .\NvidiaTravelAgent\NvidiaTravelAgent.csproj
@@ -62,25 +49,30 @@ dotnet run --project .\NvidiaTravelAgent\NvidiaTravelAgent.csproj
 dotnet run --project .\NvidiaTravelAgent\NvidiaTravelAgent.csproj -- repl
 ```
 
-執行單次旅遊規劃：
+單次產生行程：
 
 ```powershell
-dotnet run --project .\NvidiaTravelAgent\NvidiaTravelAgent.csproj -- plan --request "三天兩夜台南美食散步，不自駕，預算中等"
+dotnet run --project .\NvidiaTravelAgent\NvidiaTravelAgent.csproj -- plan --request "三天兩夜香港在地美食行程，想找平民餐飲與蛋塔推薦"
 ```
 
-REPL 內建指令：
+REPL 指令：
 
 - `reset`：清空目前 session
 - `exit`：離開 REPL
 
-## 啟動規則
+## 執行中畫面
 
-- 無參數：預設進入 REPL
-- `help` / `--help` / `-h`：顯示說明
-- `plan --request "..."`：輸出單次行程規劃
-- `repl`：明確指定 REPL 模式
+執行 `plan` 或 `repl` 時，畫面會顯示這類進度訊息：
 
-如果模型回傳的 JSON 形狀不完全符合預期，程式會先做 normalization，必要時再自動重試一次；若仍失敗，REPL 會顯示友善錯誤訊息，而不是直接噴出 `JsonException` 堆疊。
+```text
+[進度] 正在分析旅遊需求...
+[進度] 這次需求較複雜，將先分步整理候選建議...
+[進度] 正在搜尋：香港 在地美食 最新資訊
+[進度] 正在驗證 5 筆候選來源...
+[進度] 正在整理旅遊行程建議清單...
+```
+
+進度訊息只描述目前階段，不會和最終行程內容混在一起。
 
 ## 專案結構
 
@@ -91,15 +83,15 @@ NvidiaTravelAgent.Tests/
 docs/
 ```
 
-主要模組：
+主要檔案：
 
-- `Configuration/AppOptions.cs`：讀取 API Key 與模型設定
-- `Services/NvidiaChatClient.cs`：封裝 NVIDIA API 呼叫與 JSON 容錯
-- `Services/ModelJsonNormalizer.cs`：針對模型輸出做 schema normalization
-- `Services/WebSearchService.cs`：搜尋候選來源
-- `Services/WebPageVerifier.cs`：抓取並驗證網頁內容
-- `Services/TravelPlannerEngine.cs`：協調需求解析、搜尋驗證、行程生成
-- `Agents/TravelPlannerAgent.cs`：Microsoft Agent Framework 入口
+- [Program.cs](/C:/Vulcan/Projects/Agent-Framework-Lab/Agent-Framework-NVIDIA/NvidiaTravelAgent/Program.cs)：CLI / REPL 入口與進度顯示
+- [TravelPlannerAgent.cs](/C:/Vulcan/Projects/Agent-Framework-Lab/Agent-Framework-NVIDIA/NvidiaTravelAgent/Agents/TravelPlannerAgent.cs)：Microsoft Agent Framework agent
+- [TravelPlannerEngine.cs](/C:/Vulcan/Projects/Agent-Framework-Lab/Agent-Framework-NVIDIA/NvidiaTravelAgent/Services/TravelPlannerEngine.cs)：主流程編排與 progress 回報
+- [NvidiaChatClient.cs](/C:/Vulcan/Projects/Agent-Framework-Lab/Agent-Framework-NVIDIA/NvidiaTravelAgent/Services/NvidiaChatClient.cs)：模型呼叫、JSON normalization 與重試
+- [WebSearchService.cs](/C:/Vulcan/Projects/Agent-Framework-Lab/Agent-Framework-NVIDIA/NvidiaTravelAgent/Services/WebSearchService.cs)：搜尋候選來源
+- [WebPageVerifier.cs](/C:/Vulcan/Projects/Agent-Framework-Lab/Agent-Framework-NVIDIA/NvidiaTravelAgent/Services/WebPageVerifier.cs)：抓取並驗證網頁資訊
+- [ItineraryComposer.cs](/C:/Vulcan/Projects/Agent-Framework-Lab/Agent-Framework-NVIDIA/NvidiaTravelAgent/Services/ItineraryComposer.cs)：輸出最終 Markdown 清單
 
 ## 測試
 
@@ -109,25 +101,10 @@ dotnet test .\NvidiaTravelAgent.Tests\NvidiaTravelAgent.Tests.csproj
 
 目前測試涵蓋：
 
-- `Navidia_Vulcan` 與 fallback 環境變數讀取
-- `TravelRequest` JSON 反序列化
-- 搜尋結果去重與無效網址排除
-- HTML 驗證器的標題、摘要與事實萃取
-- 行程輸出時的來源約束
-- `TravelPlannerAgent` 的 session 記憶與 reset 行為
-- 無參數啟動時會進入 REPL
-- EOF/null 輸入時會顯示明確提示
-- `specialRequirements` / `transportationNotes` 的 normalization
-- 第一次錯誤、第二次重試成功的 JSON 修復流程
-
-## 設計取向
-
-這個範例刻意保持簡單，方便後續撰寫技術文章：
-
-- 不加入資料庫
-- 不加入 Web UI
-- 不做訂位與付款
-- 不保證即時價格
-- 專注在「可查證、可說明、可示範」的 Agent 流程
-
-更完整的技術說明請見 [docs/project-plan.md](/C:/Vulcan/Projects/Agent-Framework-Lab/Agent-Framework-NVIDIA/docs/project-plan.md)。
+- API key 讀取優先順序
+- `TravelRequest` JSON 解析
+- 搜尋結果正規化
+- HTML 驗證與事實萃取
+- JSON normalization / retry
+- CLI / REPL 進度輸出
+- 失敗情境下的友善錯誤與 progress 顯示
