@@ -1,0 +1,4 @@
+<Solution>
+  <Project Path="NvidiaTravelAgent.Tests/NvidiaTravelAgent.Tests.csproj" />
+  <Project Path="NvidiaTravelAgent/NvidiaTravelAgent.csproj" />
+</Solution>
