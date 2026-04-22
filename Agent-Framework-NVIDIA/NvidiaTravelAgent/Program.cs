@@ -41,19 +41,14 @@ internal sealed class SystemConsole : IAppConsole
     }
 
     public string? ReadLine() => Console.ReadLine();
-
     public void Write(string value) => Console.Write(value);
-
     public void WriteLine(string value) => Console.WriteLine(value);
-
     public void WriteErrorLine(string value) => Console.Error.WriteLine(value);
 }
 
 internal static class CliApplication
 {
-    public static Task<int> RunAsync(
-        string[] args,
-        CancellationToken cancellationToken)
+    public static Task<int> RunAsync(string[] args, CancellationToken cancellationToken)
         => RunAsync(args, new SystemConsole(), CreateDefaultAgent, cancellationToken);
 
     internal static async Task<int> RunAsync(
@@ -111,9 +106,17 @@ internal static class CliApplication
             return 1;
         }
 
-        var response = await agent.RunAsync(request, cancellationToken: cancellationToken);
-        console.WriteLine(response.Text);
-        return 0;
+        try
+        {
+            var response = await agent.RunAsync(request, cancellationToken: cancellationToken);
+            console.WriteLine(response.Text);
+            return 0;
+        }
+        catch (ModelOutputException ex)
+        {
+            console.WriteErrorLine(ex.Message);
+            return 1;
+        }
     }
 
     private static async Task<int> RunReplAsync(
@@ -156,8 +159,15 @@ internal static class CliApplication
                 continue;
             }
 
-            var response = await agent.RunAsync(input, session, cancellationToken: cancellationToken);
-            console.WriteLine(response.Text);
+            try
+            {
+                var response = await agent.RunAsync(input, session, cancellationToken: cancellationToken);
+                console.WriteLine(response.Text);
+            }
+            catch (ModelOutputException ex)
+            {
+                console.WriteErrorLine(ex.Message);
+            }
         }
     }
 

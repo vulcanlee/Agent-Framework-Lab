@@ -20,8 +20,8 @@ Agent 的核心原則很單純：
 - 支援 `repl` 連續對話模式
 - 無參數時預設直接進入 REPL
 - 若執行環境沒有互動式標準輸入，REPL 會顯示提示後結束
+- 模型輸出會經過 schema normalization，並在必要時自動重試一次
 - 最終輸出固定包含來源清單
-- `README.md` 與 `docs/project-plan.md` 皆以 UTF-8 編碼維護
 
 ## 環境需求
 
@@ -65,7 +65,7 @@ dotnet run --project .\NvidiaTravelAgent\NvidiaTravelAgent.csproj -- repl
 執行單次旅遊規劃：
 
 ```powershell
-dotnet run --project .\NvidiaTravelAgent\NvidiaTravelAgent.csproj -- plan --request "三天兩夜去香港旅遊，想要體驗與品嘗當地居民最喜歡去吃的各種平民餐飲，體驗各種煙火氣息，建議各種香港必須吃的餐點(我已經去過三次香港了)，另外，我還需要購買多家好吃的蛋塔，為什麼建議這家，我會外帶回飯店吃，請幫我規劃行程，並且提供每個行程的資訊來源"
+dotnet run --project .\NvidiaTravelAgent\NvidiaTravelAgent.csproj -- plan --request "三天兩夜台南美食散步，不自駕，預算中等"
 ```
 
 REPL 內建指令：
@@ -80,7 +80,7 @@ REPL 內建指令：
 - `plan --request "..."`：輸出單次行程規劃
 - `repl`：明確指定 REPL 模式
 
-如果執行環境沒有可互動的標準輸入，REPL 會顯示「沒有可互動的標準輸入」提示，而不是看起來像正常執行後秒退。
+如果模型回傳的 JSON 形狀不完全符合預期，程式會先做 normalization，必要時再自動重試一次；若仍失敗，REPL 會顯示友善錯誤訊息，而不是直接噴出 `JsonException` 堆疊。
 
 ## 專案結構
 
@@ -94,21 +94,12 @@ docs/
 主要模組：
 
 - `Configuration/AppOptions.cs`：讀取 API Key 與模型設定
-- `Services/NvidiaChatClient.cs`：封裝 NVIDIA API 呼叫
+- `Services/NvidiaChatClient.cs`：封裝 NVIDIA API 呼叫與 JSON 容錯
+- `Services/ModelJsonNormalizer.cs`：針對模型輸出做 schema normalization
 - `Services/WebSearchService.cs`：搜尋候選來源
 - `Services/WebPageVerifier.cs`：抓取並驗證網頁內容
 - `Services/TravelPlannerEngine.cs`：協調需求解析、搜尋驗證、行程生成
 - `Agents/TravelPlannerAgent.cs`：Microsoft Agent Framework 入口
-
-## 執行流程
-
-1. 使用者輸入自由文字需求
-2. `TravelPlannerEngine` 呼叫 NVIDIA 模型解析成 `TravelRequest`
-3. 程式產生景點、交通、住宿三類搜尋查詢
-4. `WebSearchService` 搜尋候選來源
-5. `WebPageVerifier` 擷取可引用的標題、摘要與關鍵事實
-6. 程式將已驗證資料交給 NVIDIA 模型生成 `TravelPlan`
-7. `ItineraryComposer` 檢查每個行程項目是否都有來源，再輸出最終文字
 
 ## 測試
 
@@ -126,6 +117,8 @@ dotnet test .\NvidiaTravelAgent.Tests\NvidiaTravelAgent.Tests.csproj
 - `TravelPlannerAgent` 的 session 記憶與 reset 行為
 - 無參數啟動時會進入 REPL
 - EOF/null 輸入時會顯示明確提示
+- `specialRequirements` / `transportationNotes` 的 normalization
+- 第一次錯誤、第二次重試成功的 JSON 修復流程
 
 ## 設計取向
 

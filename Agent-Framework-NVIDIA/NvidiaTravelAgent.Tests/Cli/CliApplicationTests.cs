@@ -60,9 +60,21 @@ public class CliApplicationTests
         console.Output.Should().Contain("來源清單");
     }
 
-    private static TravelPlannerAgent CreateAgent()
+    [Fact]
+    public async Task RunAsync_repl_continues_after_model_output_error_until_user_exits()
     {
-        var llm = new FakeNvidiaChatClient();
+        var console = new FakeConsole("香港美食需求", "exit");
+        var agent = CreateAgent(new ThrowingNvidiaChatClient());
+
+        var exitCode = await CliApplication.RunAsync(Array.Empty<string>(), console, _ => agent, CancellationToken.None);
+
+        exitCode.Should().Be(0);
+        console.Error.Should().Contain("需求解析失敗");
+    }
+
+    private static TravelPlannerAgent CreateAgent(INvidiaChatClient? llm = null)
+    {
+        llm ??= new FakeNvidiaChatClient();
         var search = new FakeWebSearchService();
         var verifier = new FakeWebPageVerifier();
         var planner = new TravelPlannerEngine(llm, search, verifier, new ItineraryComposer());
@@ -86,11 +98,8 @@ public class CliApplicationTests
         public string Error => _error.ToString();
 
         public string? ReadLine() => _inputs.Count > 0 ? _inputs.Dequeue() : null;
-
         public void Write(string value) => _output.Append(value);
-
         public void WriteLine(string value) => _output.AppendLine(value);
-
         public void WriteErrorLine(string value) => _error.AppendLine(value);
     }
 
@@ -135,6 +144,12 @@ public class CliApplicationTests
 
             return Task.FromResult((T)result);
         }
+    }
+
+    private sealed class ThrowingNvidiaChatClient : INvidiaChatClient
+    {
+        public Task<T> CompleteJsonAsync<T>(IReadOnlyList<LlmMessage> messages, CancellationToken cancellationToken = default)
+            => throw new ModelOutputException("需求解析失敗，請稍微簡化描述後重試。");
     }
 
     private sealed class FakeWebSearchService : IWebSearchService

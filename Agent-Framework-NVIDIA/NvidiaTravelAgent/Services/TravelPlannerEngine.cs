@@ -1,5 +1,4 @@
 using NvidiaTravelAgent.Models;
-using System.Text;
 using System.Text.Json;
 
 namespace NvidiaTravelAgent.Services;
@@ -47,9 +46,14 @@ public sealed class TravelPlannerEngine
         return await _llm.CompleteJsonAsync<TravelRequest>(
         [
             new LlmMessage("system", """
-                你是旅遊需求解析器。請將使用者需求轉為 JSON，欄位固定為:
-                destination, days, travelStyle, transportationPreference, budget, specialRequirements。
-                僅輸出 JSON，不要加說明文字。
+                你是旅遊需求解析器。請將使用者需求轉成 JSON，欄位必須固定為：
+                destination, days, travelStyle, transportationPreference, budget, specialRequirements
+
+                請嚴格遵守以下規則：
+                1. 只輸出 JSON，不要加說明文字或 markdown。
+                2. specialRequirements 必須是字串陣列，例如 ["想吃蛋塔", "不想走太多路"]。
+                3. days 必須是數字。
+                4. 若需求很長，請把補充偏好整理到 specialRequirements 陣列。
                 """),
             new LlmMessage("user", conversation)
         ], cancellationToken);
@@ -76,7 +80,7 @@ public sealed class TravelPlannerEngine
                 }
                 catch
                 {
-                    // Ignore individual source failures to keep the sample straightforward.
+                    // Keep the sample simple: ignore individual source failures.
                 }
             }
         }
@@ -104,11 +108,19 @@ public sealed class TravelPlannerEngine
         return await _llm.CompleteJsonAsync<TravelPlan>(
         [
             new LlmMessage("system", """
-                你是旅遊行程規劃器。只能根據提供的 verifiedFacts 產生旅遊行程 JSON。
+                你是旅遊行程規劃器。只能根據提供的 request 與 verifiedFacts 產生旅遊行程 JSON。
                 不可虛構景點、交通或住宿資訊。
-                欄位固定為:
-                summary, dailyPlans[{day,theme,items[{category,name,description}]}], transportationNotes, accommodationNotes, cautions。
-                僅輸出 JSON。
+
+                請嚴格遵守以下規則：
+                1. 只輸出 JSON，不要加說明文字或 markdown。
+                2. transportationNotes、accommodationNotes、cautions 都必須是字串陣列。
+                3. dailyPlans 必須是陣列；每個 day 內的 items 也必須是陣列。
+                4. 欄位固定為：
+                   summary,
+                   dailyPlans[{day,theme,items[{category,name,description}]}],
+                   transportationNotes,
+                   accommodationNotes,
+                   cautions
                 """),
             new LlmMessage("user", JsonSerializer.Serialize(payload, TravelRequestSerializer.Options))
         ], cancellationToken);

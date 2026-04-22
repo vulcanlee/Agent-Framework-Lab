@@ -20,6 +20,42 @@ public sealed class NvidiaChatClient : INvidiaChatClient
 
     public async Task<T> CompleteJsonAsync<T>(IReadOnlyList<LlmMessage> messages, CancellationToken cancellationToken = default)
     {
+        var workingMessages = messages.ToList();
+        string? lastContent = null;
+        Exception? lastException = null;
+
+        for (var attempt = 0; attempt < 2; attempt++)
+        {
+            try
+            {
+                lastContent = await SendChatCompletionAsync(workingMessages, cancellationToken);
+                var json = ExtractJson(lastContent);
+                var root = JsonNode.Parse(json) as JsonObject
+                    ?? throw new InvalidOperationException("模型回傳的內容不是有效的 JSON 物件。");
+
+                var normalized = ModelJsonNormalizer.NormalizeFor<T>(root);
+                ModelJsonNormalizer.ValidateRequiredFields<T>(normalized);
+
+                return JsonSerializer.Deserialize<T>(normalized.ToJsonString(), TravelRequestSerializer.Options)
+                    ?? throw new InvalidOperationException("無法將模型回傳內容轉換為目標型別。");
+            }
+            catch (Exception ex) when (ex is JsonException or InvalidOperationException)
+            {
+                lastException = ex;
+
+                if (attempt == 0)
+                {
+                    workingMessages = BuildRepairMessages<T>(messages, lastContent, ex);
+                    continue;
+                }
+            }
+        }
+
+        throw new ModelOutputException(GetFailureMessage<T>(), lastException);
+    }
+
+    private async Task<string> SendChatCompletionAsync(IReadOnlyList<LlmMessage> messages, CancellationToken cancellationToken)
+    {
         using var request = new HttpRequestMessage(HttpMethod.Post, new Uri(_options.BaseUri, "chat/completions"));
         request.Headers.Authorization = new System.Net.Http.Headers.AuthenticationHeaderValue("Bearer", _options.NvidiaApiKey);
         request.Headers.Accept.ParseAdd("application/json");
@@ -41,11 +77,83 @@ public sealed class NvidiaChatClient : INvidiaChatClient
         var payload = await response.Content.ReadFromJsonAsync<JsonObject>(cancellationToken: cancellationToken)
             ?? throw new InvalidOperationException("NVIDIA 回應為空。");
 
-        var content = payload["choices"]?[0]?["message"]?["content"]?.GetValue<string>()
+        return payload["choices"]?[0]?["message"]?["content"]?.GetValue<string>()
             ?? throw new InvalidOperationException("NVIDIA 回應不包含 choices[0].message.content。");
+    }
 
-        return JsonSerializer.Deserialize<T>(ExtractJson(content), TravelRequestSerializer.Options)
-            ?? throw new InvalidOperationException("無法將 NVIDIA 回應解析為目標 JSON。");
+    private static List<LlmMessage> BuildRepairMessages<T>(IReadOnlyList<LlmMessage> originalMessages, string? lastContent, Exception ex)
+    {
+        return
+        [
+            .. originalMessages,
+            new LlmMessage("assistant", lastContent ?? string.Empty),
+            new LlmMessage("user", $"""
+                你上一個回應的 JSON 無法解析，請只重新輸出合法 JSON，不要加入任何說明文字。
+                錯誤原因：{ex.Message}
+                目標 schema：
+                {GetSchemaDescription<T>()}
+                請特別注意所有應為字串陣列的欄位必須使用 JSON array。
+                """)
+        ];
+    }
+
+    private static string GetSchemaDescription<T>()
+    {
+        if (typeof(T).Name == "TravelRequest")
+        {
+            return """
+                {
+                  "destination": "string",
+                  "days": 3,
+                  "travelStyle": "string",
+                  "transportationPreference": "string",
+                  "budget": "string",
+                  "specialRequirements": ["string", "string"]
+                }
+                """;
+        }
+
+        if (typeof(T).Name == "TravelPlan")
+        {
+            return """
+                {
+                  "summary": "string",
+                  "dailyPlans": [
+                    {
+                      "day": 1,
+                      "theme": "string",
+                      "items": [
+                        {
+                          "category": "string",
+                          "name": "string",
+                          "description": "string"
+                        }
+                      ]
+                    }
+                  ],
+                  "transportationNotes": ["string"],
+                  "accommodationNotes": ["string"],
+                  "cautions": ["string"]
+                }
+                """;
+        }
+
+        return "請輸出合法 JSON。";
+    }
+
+    private static string GetFailureMessage<T>()
+    {
+        if (typeof(T).Name == "TravelRequest")
+        {
+            return "需求解析失敗，請稍微簡化描述後重試。";
+        }
+
+        if (typeof(T).Name == "TravelPlan")
+        {
+            return "行程生成失敗，模型回傳格式不符合預期，請稍後再試。";
+        }
+
+        return "模型回傳格式不符合預期。";
     }
 
     private static string ExtractJson(string content)

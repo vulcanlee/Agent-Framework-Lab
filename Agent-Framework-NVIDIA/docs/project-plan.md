@@ -28,18 +28,20 @@
 - Agent 內部委派給 `TravelPlannerEngine`
 - Engine 以程式碼方式協調搜尋、驗證、生成與輸出
 
-這種做法保留了 Agent Framework 的 session / lifecycle / invocation 模型，同時維持範例簡單。
+### 3. JSON 容錯與自動重試
 
-### 3. 搜尋策略採零額外 API Key
+因為模型回傳 JSON 的形狀不一定完全穩定，解析層加入了兩個保護：
 
-為了降低範例門檻，搜尋端不依賴第三方搜尋 API，而是直接抓取可公開查詢的搜尋結果頁，再進一步驗證來源內容。
+- `ModelJsonNormalizer`：先把常見 shape mismatch 修正成目標 schema
+- `NvidiaChatClient` 一次自動重試：第一次解析失敗時，回傳明確 schema 再請模型重送
 
-驗證時優先保留：
+目前會容忍的情況包含：
 
-- 官方網站
-- 觀光局或旅遊局頁面
-- 交通營運商官網
-- 住宿或飯店官網
+- `specialRequirements` 為單一字串、物件、混合陣列
+- `transportationNotes` / `accommodationNotes` / `cautions` 為單一字串
+- `dailyPlans[*].items` 缺失或為 `null`
+
+對缺少必要欄位如 `destination`、`days`、`travelStyle`，仍視為失敗，但會回傳應用層友善錯誤，而不是直接丟出 `JsonException`。
 
 ## 啟動與互動設計
 
@@ -52,85 +54,13 @@ CLI 行為固定如下：
 
 REPL 啟動時會先設定 `Console.InputEncoding` 與 `Console.OutputEncoding` 為 UTF-8。
 
+若模型輸出格式仍然不合規，REPL 只會顯示友善錯誤訊息，會話本身會繼續存活，使用者可以直接輸入下一輪需求。
+
 若程式偵測到輸入流直接回傳 EOF/null，代表目前不是互動式標準輸入環境；此時會顯示提示訊息並結束，避免看起來像程式異常秒退。
-
-## 模組說明
-
-### `AppOptions`
-
-負責從環境變數讀取 NVIDIA API Key。
-
-規則：
-
-- 優先讀取 `Navidia_Vulcan`
-- 若沒有，再 fallback 到 `NVIDIA_API_KEY`
-
-### `NvidiaChatClient`
-
-封裝 NVIDIA：
-
-- `POST https://integrate.api.nvidia.com/v1/chat/completions`
-
-程式目前將回應內容視為 JSON 字串來源，並負責從 markdown code fence 或純文字中抽出 JSON 再反序列化。
-
-### `WebSearchService`
-
-負責：
-
-- 送出搜尋查詢
-- 擷取候選結果
-- 過濾空白、重複與無效 URL
-
-### `WebPageVerifier`
-
-負責：
-
-- 抓取網頁 HTML
-- 擷取 `<title>`
-- 擷取 meta description
-- 從段落中找出可作為事實的文字
-
-這一層的目的不是理解整個網站，而是提供「足夠可引用的已驗證資訊」。
-
-### `TravelPlannerEngine`
-
-負責整體流程：
-
-1. 用 LLM 將需求解析為 `TravelRequest`
-2. 依需求產生搜尋查詢
-3. 搜尋並抓取候選來源
-4. 驗證來源並抽出事實
-5. 再次呼叫 LLM，根據已驗證資料產生 `TravelPlan`
-6. 交由 `ItineraryComposer` 組成最終輸出
-
-### `ItineraryComposer`
-
-這一層是最後的守門員。
-
-規則：
-
-- 若行程中的景點 / 交通 / 住宿找不到對應來源，直接拒絕輸出
-- 輸出固定附上來源清單
-
-## 資料流程
-
-```mermaid
-flowchart TD
-    A["User Request"] --> B["TravelPlannerAgent"]
-    B --> C["TravelPlannerEngine"]
-    C --> D["NVIDIA: Parse TravelRequest"]
-    D --> E["Build Search Queries"]
-    E --> F["WebSearchService"]
-    F --> G["WebPageVerifier"]
-    G --> H["Verified Sources / Facts"]
-    H --> I["NVIDIA: Generate TravelPlan"]
-    I --> J["ItineraryComposer"]
-    J --> K["Final Markdown Output with Sources"]
-```
 
 ## 測試策略
 
-本專案目前採用 xUnit，測試分成三層：
+本專案目前採用 xUnit，測試分成四層：
 
 ### 單元測試
 
@@ -139,6 +69,15 @@ flowchart TD
 - 搜尋結果清理
 - HTML 驗證萃取
 - 行程來源驗證
+
+### JSON 容錯測試
+
+- `specialRequirements` 字串轉陣列
+- `specialRequirements` 物件壓平成字串陣列
+- `transportationNotes` / `accommodationNotes` / `cautions` 字串轉陣列
+- `dailyPlans[*].items` 缺失或 `null` 時補空陣列
+- 第一次模型輸出缺必要欄位、第二次重試成功
+- 連續兩次失敗時丟出 `ModelOutputException`
 
 ### 整合測試
 
@@ -160,35 +99,7 @@ flowchart TD
 - `help` 只顯示用法
 - `plan --request` 維持單次輸出
 - 標準輸入為 EOF/null 時顯示明確提示
-
-### 文件與編碼
-
-專案加入 `.editorconfig`，明確指定：
-
-- `README.md`
-- `docs/*.md`
-- `*.cs`
-- `*.json`
-
-皆使用 UTF-8。
-
-這次修正也把已污染的中文字串視為內容 bug，一併重建，而不是只依賴編碼設定。
-
-## 目前限制
-
-- 尚未針對搜尋引擎頁面結構變動做強化保護
-- 尚未做來源可信度分級
-- 尚未提供真正的訂房或訂票功能
-- 尚未保證即時票價 / 房價
-- 尚未對長對話做摘要壓縮
-
-## 後續可擴充方向
-
-- 增加來源排序與可信度評分
-- 增加日期、預算與地理距離約束
-- 增加結構化輸出格式，例如 JSON / Markdown 雙輸出
-- 增加快取，減少重複抓取網頁
-- 增加命令列參數，例如 `--days`、`--budget`、`--destination`
+- REPL 中模型解析失敗時，仍可繼續接受下一輪輸入
 
 ## 文件同步規則
 
@@ -197,4 +108,4 @@ flowchart TD
 - `README.md`
 - `docs/project-plan.md`
 
-若命令、環境變數、輸出格式或模組責任有變動，這兩份文件必須在同一次修改中一併更新。
+若命令、環境變數、輸出格式、模型容錯規則或模組責任有變動，這兩份文件必須在同一次修改中一併更新。
