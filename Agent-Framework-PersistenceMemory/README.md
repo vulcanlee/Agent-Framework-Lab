@@ -1,12 +1,13 @@
 # 極簡 PM Agent with Persistent Memory
 
-這是一個用 `C#/.NET`、`Microsoft Agent Framework` 與 `GitHub Models` 實作的 console REPL 範例。Agent 扮演 PM，能把原始需求拆成工作項目、逐項檢討修正、輸出正式工作需求清單，並把跨 session 的資訊保存到 UTF-8 JSON。
+這是一個用 `C#/.NET`、`Microsoft Agent Framework` 與 `GitHub Models` 實作的 console REPL 範例。Agent 扮演 PM，能把原始需求拆成工作項目、逐項檢討修正、用自然語言聊天討論風險與驗收條件，最後輸出正式工作需求清單，並把跨 session 的資訊保存到 UTF-8 JSON。
 
 ## 主要功能
 
 - `/ingest` 貼上原始需求
 - `/ingest <text-file-path>` 直接從 UTF-8 文字檔讀入需求
-- `/work review`、`/work update` 持續討論既有 work item
+- 直接輸入自然語言進入聊天模式，和 Agent 討論需求與 work item
+- `/work review`、`/work update` 持續整理既有 work item
 - `/work add` 手動新增 work item
 - `/work remove` 刪除指定 work item
 - `/source remove` 硬刪除整個 source
@@ -31,6 +32,8 @@
 - `/show-memory`
 - `/new-session`
 
+不是 slash command 的輸入，會自動進入聊天模式。若目前有 active source 或 active work item，Agent 會自動帶入上下文，但不會直接修改資料；真正的資料變更仍需使用明確指令。
+
 ## 狀態訊息與 Token 使用量
 
 處理需求時，REPL 會持續輸出 Agent 狀態與 usage：
@@ -52,6 +55,8 @@
 /work review W1
 請補上權限異動後的 email 通知
 /work add 權限異動通知 --desc 加入 email 與站內通知 --owner Backend --accept 可設定通知內容;可關閉通知
+W1 的驗收條件還缺什麼？
+幫我比較 W1 跟 W2 哪個應該先做
 /finalize source-001 --save docs/formal-requirements/source-001.md
 ```
 
@@ -62,6 +67,16 @@
 ```text
 /ingest docs/sample-requirement.txt
 ```
+
+### 自然語言聊天模式
+
+```text
+W1 的驗收條件還缺什麼？
+幫我比較 W2 跟 W3 哪個應該先做
+這個需求還有哪些風險？
+```
+
+聊天模式會參考目前 active source / active work item 來分析，但不會自動更新 persistent memory 或 work item 內容。
 
 ### 刪除來源
 
@@ -95,6 +110,7 @@
 ```powershell
 [Console]::InputEncoding = [System.Text.UTF8Encoding]::new($false)
 [Console]::OutputEncoding = [System.Text.UTF8Encoding]::new($false)
+$OutputEncoding = [System.Text.UTF8Encoding]::new($false)
 $env:GITHUB_TOKEN="your_token"
 dotnet run --project .\AgentFrameworkPersistenceMemory\AgentFrameworkPersistenceMemory.csproj
 ```

@@ -43,9 +43,23 @@ public sealed record FinalizeSourceRequest(
 
 public sealed record FinalizeSourceResult(string FormalizedOutput);
 
+public sealed record DiscussionRequest(
+    string UserMessage,
+    string SessionSummary,
+    PersistentMemoryRecord? ActiveSource,
+    WorkItemRecord? ActiveWorkItem,
+    IReadOnlyList<PersistentMemoryRecord> RecalledMemories);
+
+public sealed record DiscussionResult(
+    string Reply,
+    IReadOnlyList<string> ReferencedWorkItemIds,
+    IReadOnlyList<string> SuggestedNextActions);
+
 public interface IPmAgentService
 {
     Task<IngestSourceResult> IngestSourceAsync(IngestSourceRequest request, CancellationToken cancellationToken);
+
+    Task<DiscussionResult> DiscussAsync(DiscussionRequest request, CancellationToken cancellationToken);
 
     Task<WorkItemRevisionResult> ReviseWorkItemAsync(WorkItemRevisionRequest request, CancellationToken cancellationToken);
 

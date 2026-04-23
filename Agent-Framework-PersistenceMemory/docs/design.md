@@ -7,6 +7,7 @@
 - 以 REPL 接收需求
 - 拆成 `source + work item`
 - 支援持續檢討、手動新增、刪除
+- 支援自然語言聊天分析
 - 輸出正式工作需求清單
 - 保存跨 session 的永久記憶
 
@@ -14,16 +15,22 @@
 
 ### `PmConsoleApp`
 
-- slash command 解析
-- ingest 貼上模式與檔案模式
-- `/source remove`
-- `/work add`、`/work remove`
-- user-facing 錯誤攔截
+- 解析 slash command
+- 管理 ingest 貼上模式與檔案模式
+- 非 slash command 時自動進入聊天模式
+- 統一攔截 user-facing 錯誤
 
 ### `PmWorkflow`
 
 - 串接 session、memory recall、Agent 分析與持久化
-- 管理 source ingest、work item revise、work item add/remove、source remove、finalize
+- 管理 source ingest、work item review/update/add/remove、source remove、finalize
+- 在聊天模式下整理 active source、active work item 與 recalled memories
+
+### `AgentFrameworkPmAgentService`
+
+- 使用 Microsoft Agent Framework 封裝 PM Agent
+- 提供結構化的 ingest、review、finalize 與 discuss 能力
+- 每次呼叫 LLM 後回報 token usage
 
 ### `GitHubModelsClient`
 
@@ -55,27 +62,51 @@
 - suggested engineer
 - status
 
-## 新增能力
+## 互動模式
+
+### Slash command
+
+適合做明確資料操作，例如：
+
+- `/ingest`
+- `/source remove <source-id>`
+- `/work add ...`
+- `/work remove <work-id>`
+- `/finalize <source-id>`
+
+### 自然語言聊天
+
+只要輸入不是 slash command，就會進入聊天模式。聊天模式會：
+
+- 優先帶入 active source
+- 若有 active work item，也會把該項內容一起帶入
+- 允許使用者詢問驗收條件、風險、優先順序與拆解建議
+- 不會直接修改資料或寫回 persistent memory
+
+## 刪除與新增
 
 ### source 硬刪除
 
 - `/source remove <source-id>`
-- 直接從永久記憶移除整筆 source
-- 若正好是 active source，會同步清掉 active source / active work item
+- 直接從 persistent memory 移除整筆 source
+- 若刪掉的是 active source，會同步清掉 active source / active work item
 
 ### work item 手動新增與刪除
 
-- `/work add ...` 直接寫入目前 active source
-- `/work remove <work-id>` 只刪除單一 work item
-- 編號使用下一個可用號碼，不重排現有編號
+- `/work add ...` 直接加入目前 active source
+- `/work remove <work-id>` 只刪除指定 work item
+- work item 編號不重排，避免討論紀錄失焦
 
-### 檔案 ingest
+## 檔案 ingest
 
-- `/ingest <path>` 直接從 UTF-8 檔案讀入
+- `/ingest <path>` 以 UTF-8 讀取文字檔
 - 與貼上模式共用同一條 ingest workflow
+- 讀取失敗時只回報錯誤，不中止 REPL
 
-### Token usage 顯示
+## Token usage 顯示
 
-- recall relevance 若走 LLM，會顯示一次 usage
-- ingest / revise / finalize 各自顯示一次 usage
-- `other` 優先取 API 其他 usage 欄位，否則用 `total - input - output`，再不行就顯示 `0`
+- recall relevance 若有呼叫 LLM，也會顯示 usage
+- ingest / review / finalize / discuss 都會顯示 usage
+- `other` 優先使用 API 回傳的其他 usage 欄位
+- 若 API 只給 `total`，則使用 `total - input - output`
+- 若無法取得，預設顯示 `0`

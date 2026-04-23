@@ -80,6 +80,50 @@ public sealed class PmWorkflow(
         return record;
     }
 
+    public async Task<string> DiscussAsync(string userMessage, CancellationToken cancellationToken)
+    {
+        _sessionManager.AddUserInput(userMessage);
+        _statusReporter.Report("正在整理聊天上下文");
+
+        var allMemories = await _memoryStore.LoadAsync(cancellationToken);
+        var recalled = allMemories
+            .Where(memory => _sessionManager.Current.RecalledMemoryIds.Contains(memory.Id, StringComparer.OrdinalIgnoreCase))
+            .ToList();
+
+        PersistentMemoryRecord? activeSource = null;
+        WorkItemRecord? activeWorkItem = null;
+
+        if (!string.IsNullOrWhiteSpace(_sessionManager.Current.ActiveSourceId))
+        {
+            activeSource = allMemories.FirstOrDefault(memory =>
+                string.Equals(memory.Id, _sessionManager.Current.ActiveSourceId, StringComparison.OrdinalIgnoreCase));
+        }
+
+        if (activeSource is not null && !string.IsNullOrWhiteSpace(_sessionManager.Current.ActiveWorkItemId))
+        {
+            activeWorkItem = activeSource.WorkItems.FirstOrDefault(item =>
+                string.Equals(item.Id, _sessionManager.Current.ActiveWorkItemId, StringComparison.OrdinalIgnoreCase));
+        }
+
+        _statusReporter.Report("正在進行需求討論與分析");
+        var discussion = await _pmAgentService.DiscussAsync(
+            new DiscussionRequest(
+                userMessage,
+                _sessionManager.GetSummary(),
+                activeSource,
+                activeWorkItem,
+                recalled),
+            cancellationToken);
+
+        _sessionManager.AddAgentNote(discussion.Reply);
+        if (discussion.ReferencedWorkItemIds.Count == 1)
+        {
+            _sessionManager.SetActiveWorkItem(discussion.ReferencedWorkItemIds[0]);
+        }
+
+        return BuildDiscussionOutput(discussion);
+    }
+
     public async Task<WorkItemRecord> ReviseWorkItemAsync(string sourceId, string workItemId, string feedback, CancellationToken cancellationToken)
     {
         var record = await GetSourceAsync(sourceId, cancellationToken);
@@ -256,5 +300,23 @@ public sealed class PmWorkflow(
             .Max() + 1;
 
         return $"W{nextNumber}";
+    }
+
+    private static string BuildDiscussionOutput(DiscussionResult discussion)
+    {
+        var builder = new StringBuilder();
+        builder.AppendLine(discussion.Reply);
+
+        if (discussion.SuggestedNextActions.Count > 0)
+        {
+            builder.AppendLine();
+            builder.AppendLine("建議下一步：");
+            foreach (var action in discussion.SuggestedNextActions)
+            {
+                builder.AppendLine($"- {action}");
+            }
+        }
+
+        return builder.ToString().TrimEnd();
     }
 }

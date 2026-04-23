@@ -25,7 +25,7 @@ public sealed partial class PmConsoleApp(
     public async Task RunAsync(CancellationToken cancellationToken)
     {
         await _output.WriteLineAsync("極簡 PM Agent with Persistent Memory");
-        await _output.WriteLineAsync("輸入 /help 查看可用指令。");
+        await _output.WriteLineAsync("輸入 /help 查看可用指令，也可以直接輸入自然語言進行討論。");
 
         while (!cancellationToken.IsCancellationRequested)
         {
@@ -62,17 +62,8 @@ public sealed partial class PmConsoleApp(
                 return;
             }
 
-            var workItemId = FindWorkItemId(trimmed) ?? _sessionManager.Current.ActiveWorkItemId;
-            var sourceId = _sessionManager.Current.ActiveSourceId;
-            if (sourceId is not null && workItemId is not null)
-            {
-                var updated = await _workflow.ReviseWorkItemAsync(sourceId, workItemId, trimmed, cancellationToken);
-                _sessionManager.SetActiveWorkItem(updated.Id);
-                await _output.WriteLineAsync($"已更新 {updated.Id}：{updated.CurrentDescription}");
-                return;
-            }
-
-            await _output.WriteLineAsync("請先使用 /ingest 匯入需求，或先用 /work review <work-id> 選定要討論的工作項目。");
+            var discussion = await _workflow.DiscussAsync(trimmed, cancellationToken);
+            await _output.WriteLineAsync(discussion);
         }
         catch (UserFacingException ex)
         {
@@ -367,14 +358,14 @@ public sealed partial class PmConsoleApp(
         return _sessionManager.Current.ActiveSourceId!;
     }
 
+    private static string NormalizeInput(string input)
+        => input.Trim().TrimStart('\uFEFF').Normalize(NormalizationForm.FormC);
+
     private static string? FindWorkItemId(string text)
     {
         var match = WorkItemRegex().Match(text);
         return match.Success ? match.Value.ToUpperInvariant() : null;
     }
-
-    private static string NormalizeInput(string input)
-        => input.Trim().TrimStart('\uFEFF').Normalize(NormalizationForm.FormC);
 
     private static string? ExtractOption(string text, string optionName)
     {
@@ -431,59 +422,54 @@ public sealed partial class PmConsoleApp(
 
             /help
             查看所有功能與簡例
-            範例：/help
 
             /ingest
             進入貼上模式，準備貼入原始需求
-            範例：/ingest
 
             /ingest <text-file-path>
             從 UTF-8 文字檔讀入原始需求並直接分析
-            範例：/ingest docs/sample-requirement.txt
 
             /end
             結束貼上模式並開始拆解工作項目
-            範例：/end
 
             /source remove <source-id>
             硬刪除來源與其全部 work item
-            範例：/source remove source-001
 
             /work list [source-id]
             列出指定來源的工作項目
-            範例：/work list source-001
 
             /work review <work-id>
             檢視指定工作項目的目前版本與驗收條件
-            範例：/work review W1
 
             /work update <work-id> <修正內容>
             直接更新指定工作項目的描述與驗收方向
-            範例：/work update W1 加入 email 驗證與通知機制
 
             /work remove <work-id>
             移除指定工作項目
-            範例：/work remove W2
 
             /work add <title> --desc <description> [--owner <engineer>] [--accept <item1;item2>]
             手動新增工作項目
-            範例：/work add 權限異動通知 --desc 加入 email 與站內通知 --owner Backend --accept 可設定通知內容;可關閉通知
 
             /finalize <source-id> [--save <path>]
             產出正式工作需求清單，並可另存檔案
-            範例：/finalize source-001 --save docs/formal-requirements/source-001.md
 
             /show-session
             顯示目前 session 摘要
-            範例：/show-session
 
             /show-memory
             顯示永久記憶中的來源列表
-            範例：/show-memory
 
             /new-session
             建立新的空白 session
-            範例：/new-session
+
+            聊天模式
+            直接輸入自然語言會進入聊天模式。
+            若目前有 active source 或 active work item，聊天會自動帶入上下文。
+
+            範例
+            W1 的驗收條件還缺什麼？
+            幫我比較 W2 與 W3 哪個應該先做
+            這個需求還有哪些風險
             """;
     }
 }

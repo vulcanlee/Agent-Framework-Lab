@@ -2,28 +2,30 @@
 
 ## 目標
 
-讓這個 PM Agent 範例具備更完整的 REPL 管理能力：
+把 PM Agent REPL 擴充成更完整的需求分析工作台，包含：
 
-- 刪除整個 source
-- 刪除 work item
-- 手動新增 work item
-- 從文字檔 ingest
-- 顯示每次 LLM 互動的 token 使用量
+- source 的硬刪除
+- work item 的手動新增與刪除
+- 檔案 ingest
+- 每次 LLM 呼叫後顯示 token 使用量
+- 自然語言聊天模式
 
-## 已實作能力
+## 本輪範圍
 
 - `/source remove <source-id>`
 - `/work remove <work-id>`
 - `/work add <title> --desc <description> [--owner <engineer>] [--accept <item1;item2>]`
 - `/ingest <text-file-path>`
-- GitHub Models usage 解析與顯示
+- 聊天模式：非 slash command 預設進入 discuss
+- GitHub Models usage 顯示
 - README / docs 同步更新
 
-## 驗證重點
+## 驗收重點
 
-- 刪除 active source 後 session 狀態會一起清掉
-- work item 手動新增後會出現在 finalize 結果
-- work item 刪除不會重排編號
-- 文字檔 ingest 能正確讀取 UTF-8 中文
-- 每次 LLM 呼叫後都會看到 `Token 使用量：input=..., output=..., other=...`
-- `work-id` 或 `source-id` 找不到時，只回報錯誤，不中止 REPL
+- 刪除 active source 時，session 狀態會同步清空
+- work item 手動新增後可以被 finalize 輸出
+- work item 刪除後不重排編號
+- 檔案 ingest 可正確讀取 UTF-8 中文
+- 每次 LLM 呼叫後都顯示 `Token 使用量：input=..., output=..., other=...`
+- `work-id` 或 `source-id` 找不到時，只顯示友善訊息，不中止 REPL
+- 非 slash command 的輸入會進入聊天模式，而且不會直接改資料

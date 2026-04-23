@@ -57,9 +57,7 @@ public sealed class GitHubModelsClient(HttpClient httpClient, GitHubModelsOption
         var totalTokens = completion.Usage?.TotalTokens;
         var otherTokens = Math.Max(0, (totalTokens ?? (promptTokens + completionTokens)) - promptTokens - completionTokens);
 
-        return new ModelCompletionResult(
-            content,
-            new ModelUsage(promptTokens, completionTokens, otherTokens));
+        return new ModelCompletionResult(content, new ModelUsage(promptTokens, completionTokens, otherTokens));
     }
 
     private sealed class GitHubModelsChatCompletionResponse

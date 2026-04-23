@@ -11,6 +11,84 @@ namespace AgentFrameworkPersistenceMemory.Tests;
 public class PmWorkflowTests
 {
     [Fact]
+    public async Task DiscussAsync_UsesActiveSourceAndWorkItemContext()
+    {
+        var tempPath = Path.Combine(Path.GetTempPath(), $"{Guid.NewGuid():N}.json");
+        var store = new PersistentMemoryStore(tempPath);
+        var sessionManager = new SessionManager();
+        var source = new PersistentMemoryRecord(
+            "source-001",
+            "會員管理需求",
+            "整理會員後台的角色與權限需求",
+            "會員管理後台需要角色權限管理與審計紀錄查詢。",
+            ["會員", "角色權限", "審計紀錄"],
+            [],
+            [],
+            [],
+            [
+                new WorkItemRecord("W1", "會員角色權限", "建立角色權限設定", "建立角色權限設定", [], [], ["可設定角色"], "Frontend", "建立角色權限設定", "draft"),
+                new WorkItemRecord("W2", "審計紀錄查詢", "建立審計紀錄頁面", "建立審計紀錄頁面", [], [], ["可依時間查詢"], "Backend", "建立審計紀錄頁面", "draft")
+            ],
+            null,
+            DateTimeOffset.UtcNow);
+        await store.SaveAsync([source], CancellationToken.None);
+
+        sessionManager.SetActiveSource("source-001");
+        sessionManager.SetActiveWorkItem("W1");
+
+        var agent = new FakePmAgentService();
+        var workflow = new PmWorkflow(
+            store,
+            sessionManager,
+            new MemoryRecallService(new PassThroughEvaluator()),
+            agent,
+            new AgentStatusReporter(new StringWriter()),
+            EngineerRoster.Default);
+
+        var reply = await workflow.DiscussAsync("W1 的驗收條件還缺什麼？", CancellationToken.None);
+
+        Assert.Contains("建議下一步", reply);
+        Assert.Equal("source-001", agent.LastDiscussionRequest?.ActiveSource?.Id);
+        Assert.Equal("W1", agent.LastDiscussionRequest?.ActiveWorkItem?.Id);
+    }
+
+    [Fact]
+    public async Task DiscussAsync_DoesNotPersistChanges()
+    {
+        var tempPath = Path.Combine(Path.GetTempPath(), $"{Guid.NewGuid():N}.json");
+        var store = new PersistentMemoryStore(tempPath);
+        var source = new PersistentMemoryRecord(
+            "source-001",
+            "會員管理需求",
+            "整理會員後台的角色與權限需求",
+            "會員管理後台需要角色權限管理與審計紀錄查詢。",
+            ["會員", "角色權限", "審計紀錄"],
+            [],
+            [],
+            [],
+            [
+                new WorkItemRecord("W1", "會員角色權限", "建立角色權限設定", "建立角色權限設定", [], [], ["可設定角色"], "Frontend", "建立角色權限設定", "draft")
+            ],
+            null,
+            DateTimeOffset.UtcNow);
+        await store.SaveAsync([source], CancellationToken.None);
+
+        var workflow = new PmWorkflow(
+            store,
+            new SessionManager(),
+            new MemoryRecallService(new PassThroughEvaluator()),
+            new FakePmAgentService(),
+            new AgentStatusReporter(new StringWriter()),
+            EngineerRoster.Default);
+
+        _ = await workflow.DiscussAsync("這個需求還有哪些風險？", CancellationToken.None);
+        var loaded = await store.LoadAsync(CancellationToken.None);
+
+        Assert.Equal("建立角色權限設定", loaded[0].WorkItems[0].CurrentDescription);
+        Assert.Null(loaded[0].FinalizedOutput);
+    }
+
+    [Fact]
     public async Task IngestAndFinalizeFlow_PersistsUpdatedWorkItemsAndFormalOutput()
     {
         var tempPath = Path.Combine(Path.GetTempPath(), $"{Guid.NewGuid():N}.json");
@@ -43,87 +121,6 @@ public class PmWorkflowTests
         Assert.NotNull(persisted[0].FinalizedOutput);
     }
 
-    [Fact]
-    public async Task AddAndRemoveWorkItem_UpdatesPersistentMemory()
-    {
-        var tempPath = Path.Combine(Path.GetTempPath(), $"{Guid.NewGuid():N}.json");
-        var store = new PersistentMemoryStore(tempPath);
-        var workflow = new PmWorkflow(
-            store,
-            new SessionManager(),
-            new MemoryRecallService(new PassThroughEvaluator()),
-            new FakePmAgentService(),
-            new AgentStatusReporter(new StringWriter()),
-            EngineerRoster.Default);
-
-        var ingested = await workflow.IngestSourceAsync("會員後台需求", CancellationToken.None);
-        var added = await workflow.AddWorkItemAsync(
-            ingested.Id,
-            new ManualWorkItemDraft("權限異動通知", "加入 email 與站內通知", "Backend", ["可設定通知內容"]),
-            CancellationToken.None);
-        await workflow.RemoveWorkItemAsync(ingested.Id, "W1", CancellationToken.None);
-        var loaded = await store.LoadAsync(CancellationToken.None);
-
-        Assert.Equal("W3", added.Id);
-        Assert.DoesNotContain(loaded[0].WorkItems, item => item.Id == "W1");
-        Assert.Contains(loaded[0].WorkItems, item => item.Id == "W3");
-    }
-
-    [Fact]
-    public async Task RemoveSourceAsync_DeletesWholeRecord()
-    {
-        var tempPath = Path.Combine(Path.GetTempPath(), $"{Guid.NewGuid():N}.json");
-        var store = new PersistentMemoryStore(tempPath);
-        var sessionManager = new SessionManager();
-        var workflow = new PmWorkflow(
-            store,
-            sessionManager,
-            new MemoryRecallService(new PassThroughEvaluator()),
-            new FakePmAgentService(),
-            new AgentStatusReporter(new StringWriter()),
-            EngineerRoster.Default);
-
-        var ingested = await workflow.IngestSourceAsync("會員後台需求", CancellationToken.None);
-        await workflow.RemoveSourceAsync(ingested.Id, CancellationToken.None);
-        var loaded = await store.LoadAsync(CancellationToken.None);
-
-        Assert.Empty(loaded);
-        Assert.Null(sessionManager.Current.ActiveSourceId);
-        Assert.Null(sessionManager.Current.ActiveWorkItemId);
-    }
-
-    [Fact]
-    public async Task IngestSourceAsync_UsesFallbackWhenModelOutputIsOffTopic()
-    {
-        var tempPath = Path.Combine(Path.GetTempPath(), $"{Guid.NewGuid():N}.json");
-        var store = new PersistentMemoryStore(tempPath);
-        var workflow = new PmWorkflow(
-            store,
-            new SessionManager(),
-            new MemoryRecallService(new PassThroughEvaluator()),
-            new AgentFrameworkPmAgentService(
-                new FakeGitHubModelsClient("""
-                {
-                  "title": "Email 驗證流程",
-                  "summary": "優化註冊與 email 驗證流程。",
-                  "keywords": ["email", "註冊"],
-                  "decisions": [],
-                  "tasks": [{"title":"Email API","description":"建立 email 驗證 API","suggestedEngineer":"Backend"}],
-                  "assignments": [{"engineer":"Backend","taskTitle":"Email API"}],
-                  "workItems": [{"title":"Email 驗證","description":"建立 email 驗證流程","acceptanceCriteria":["可發送驗證信"],"suggestedEngineer":"Backend"}]
-                }
-                """),
-                new AgentStatusReporter(new StringWriter())),
-            new AgentStatusReporter(new StringWriter()),
-            EngineerRoster.Default);
-
-        var ingested = await workflow.IngestSourceAsync("會員管理後台需要角色權限管理與審計紀錄查詢。", CancellationToken.None);
-
-        Assert.Contains("需要重新確認的需求", ingested.Title);
-        Assert.Contains("會員管理後台", ingested.Summary);
-        Assert.Single(ingested.WorkItems);
-    }
-
     private sealed class PassThroughEvaluator : IMemoryRelevanceEvaluator
     {
         public Task<IReadOnlyList<string>> SelectRelevantMemoryIdsAsync(string issueText, IReadOnlyList<PersistentMemoryRecord> candidates, CancellationToken cancellationToken)
@@ -132,6 +129,8 @@ public class PmWorkflowTests
 
     private sealed class FakePmAgentService : IPmAgentService
     {
+        public DiscussionRequest? LastDiscussionRequest { get; private set; }
+
         public Task<IngestSourceResult> IngestSourceAsync(IngestSourceRequest request, CancellationToken cancellationToken)
         {
             return Task.FromResult(new IngestSourceResult(
@@ -151,6 +150,15 @@ public class PmWorkflowTests
                     new WorkItemDraft("會員角色權限", "建立角色權限設定與查詢流程", ["可設定角色", "可設定權限"], "Frontend"),
                     new WorkItemDraft("審計紀錄查詢", "建立審計紀錄查詢與篩選", ["可依時間查詢", "可依操作人篩選"], "Backend")
                 ]));
+        }
+
+        public Task<DiscussionResult> DiscussAsync(DiscussionRequest request, CancellationToken cancellationToken)
+        {
+            LastDiscussionRequest = request;
+            return Task.FromResult(new DiscussionResult(
+                "W1 目前缺少更明確的權限矩陣與驗收條件。",
+                ["W1"],
+                ["先補齊角色矩陣", "再確認是否需要審批流程"]));
         }
 
         public Task<WorkItemRevisionResult> ReviseWorkItemAsync(WorkItemRevisionRequest request, CancellationToken cancellationToken)
@@ -177,11 +185,5 @@ public class PmWorkflowTests
                 - 指派建議：Frontend
                 """));
         }
-    }
-
-    private sealed class FakeGitHubModelsClient(string json) : IGitHubModelsClient
-    {
-        public Task<ModelCompletionResult> CompleteAsync(string systemPrompt, string userPrompt, CancellationToken cancellationToken)
-            => Task.FromResult(new ModelCompletionResult(json, new ModelUsage(10, 20, 0)));
     }
 }

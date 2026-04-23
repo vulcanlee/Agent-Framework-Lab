@@ -33,9 +33,8 @@ public sealed class AgentFrameworkPmAgentService : IPmAgentService
         var sourceKeywords = ExtractSourceKeywords(request.RawInput);
         var prompt = $@"
 你是 PM Agent，負責把原始需求整理成可追蹤的工作項目。
-你只能根據使用者提供的原始材料、回填記憶與工程師名單回答，不可改寫成其他主題，不可自行發明未出現的新產品方向。
-請先辨識原始材料中的核心名詞、功能模組、角色與限制；如果資訊不足，可以保留待確認問題，但不能把需求轉成其他題目。
-請只輸出 JSON，格式如下：
+你只能根據使用者提供的原始材料、回填記憶與工程師名單回答，不可改寫成其他主題。
+請只輸出 JSON：
 {{
   ""title"": ""string"",
   ""summary"": ""string"",
@@ -46,16 +45,12 @@ public sealed class AgentFrameworkPmAgentService : IPmAgentService
   ""workItems"": [{{""title"":""string"",""description"":""string"",""acceptanceCriteria"":[""string""],""suggestedEngineer"":""string""}}]
 }}
 
-必須遵守：
-1. 任何輸出都必須與原始材料中的主題一致。
-2. 若無法確認，請在 summary 說明「需要重新確認」，不要改寫成其他主題。
-3. workItems 的標題與描述必須直接對應原始材料中的需求。
-4. 盡量保留這些關鍵詞：{string.Join("、", sourceKeywords)}
+請盡量保留這些關鍵詞：{string.Join("、", sourceKeywords)}
 
-目前 session 摘要：
+Session 摘要：
 {request.SessionSummary}
 
-回填的相關永久記憶：
+回填記憶：
 {FormatRecalledMemories(request.RecalledMemories)}
 
 工程師名單：
@@ -79,13 +74,61 @@ public sealed class AgentFrameworkPmAgentService : IPmAgentService
             : BuildFallbackIngestResult(sourceKeywords);
     }
 
+    public async Task<DiscussionResult> DiscussAsync(DiscussionRequest request, CancellationToken cancellationToken)
+    {
+        var referencedIds = request.ActiveSource?.WorkItems
+            .Where(item =>
+                request.UserMessage.Contains(item.Id, StringComparison.OrdinalIgnoreCase) ||
+                request.UserMessage.Contains(item.Title, StringComparison.OrdinalIgnoreCase))
+            .Select(item => item.Id)
+            .Distinct(StringComparer.OrdinalIgnoreCase)
+            .ToList() ?? [];
+
+        if (request.ActiveWorkItem is not null && referencedIds.Count == 0)
+        {
+            referencedIds.Add(request.ActiveWorkItem.Id);
+        }
+
+        var prompt = $@"
+你是 PM Agent，正在跟使用者討論需求與工作項目。
+請用自然語言回答，可以分析需求、補齊風險、比較工作項目優先順序、說明驗收條件缺口。
+這是一段聊天，不要直接修改任何資料，不要假設你已經更新 work item；如果使用者明顯想修改內容，可以在回答中建議使用 /work update。
+請只輸出 JSON：
+{{
+  ""reply"": ""string"",
+  ""referencedWorkItemIds"": [""W1""],
+  ""suggestedNextActions"": [""string""]
+}}
+
+Session 摘要：
+{request.SessionSummary}
+
+Active source：
+{FormatActiveSource(request.ActiveSource)}
+
+Active work item：
+{FormatActiveWorkItem(request.ActiveWorkItem)}
+
+回填記憶：
+{FormatRecalledMemories(request.RecalledMemories)}
+
+使用者訊息：
+{request.UserMessage}";
+
+        var parsed = await RunJsonPromptAsync<DiscussionResponse>(prompt, cancellationToken);
+        return new DiscussionResult(
+            parsed.Reply ?? "目前資訊不足，我可以先幫你整理問題、風險與待確認事項。",
+            parsed.ReferencedWorkItemIds?.Distinct(StringComparer.OrdinalIgnoreCase).ToList() ?? referencedIds,
+            parsed.SuggestedNextActions ?? []);
+    }
+
     public async Task<WorkItemRevisionResult> ReviseWorkItemAsync(WorkItemRevisionRequest request, CancellationToken cancellationToken)
     {
         var sourceKeywords = ExtractSourceKeywords($"{request.Source.RawInput}{Environment.NewLine}{request.WorkItem.Title}{Environment.NewLine}{request.WorkItem.OriginalDescription}");
         var prompt = $@"
 你是 PM Agent，正在修正單一 work item。
 你只能根據 source 原文、目前 work item 內容與使用者這次的修正建議回答，不可把主題改成其他需求。
-請只輸出 JSON，格式如下：
+請只輸出 JSON：
 {{
   ""updatedDescription"": ""string"",
   ""acceptanceCriteria"": [""string""],
@@ -95,11 +138,7 @@ public sealed class AgentFrameworkPmAgentService : IPmAgentService
   ""status"": ""draft|in_review|finalized""
 }}
 
-必須遵守：
-1. 更新後的內容必須維持在原始需求主題內。
-2. 不得新增原文從未提到的產品方向。
-3. 若使用者建議不足以修改，就保留原主題並寫成更明確的描述。
-4. 盡量保留這些關鍵詞：{string.Join("、", sourceKeywords)}
+請盡量保留這些關鍵詞：{string.Join("、", sourceKeywords)}
 
 來源摘要：
 {request.Source.Summary}
@@ -142,15 +181,12 @@ Session 摘要：{request.SessionSummary}
         var prompt = $@"
 你是 PM Agent，正在把一個 source 的 work items 輸出成正式工作需求清單。
 你只能整合 source 原文與目前保存的 work items，不可新增未出現在原文或討論紀錄中的新主題。
-請只輸出 JSON，格式如下：
+請只輸出 JSON：
 {{
   ""formalizedOutput"": ""markdown string""
 }}
 
-必須遵守：
-1. 正式清單必須忠於原始需求。
-2. 若模型無法確定細節，可保留待確認事項，但不可改題。
-3. 盡量保留這些關鍵詞：{string.Join("、", sourceKeywords)}
+請盡量保留這些關鍵詞：{string.Join("、", sourceKeywords)}
 
 來源標題：
 {request.Source.Title}
@@ -184,7 +220,7 @@ Session 摘要：{request.SessionSummary}";
         const string systemPrompt = """
 你是負責產品需求分析的 PM Agent。
 你的首要原則是忠於使用者提供的原始需求與既有討論紀錄。
-不能把需求改寫成其他主題，不能捏造不存在的功能，也不能輸出 JSON 以外的內容。
+不能把需求改寫成其他主題，不能捏造不存在的功能。
 如果資訊不足，請明確指出需要重新確認，而不是自行補成別的題目。
 """;
 
@@ -204,6 +240,16 @@ Session 摘要：{request.SessionSummary}";
     private static string FormatWorkItems(IReadOnlyList<WorkItemRecord> items)
         => string.Join(Environment.NewLine, items.Select(item =>
             $"- {item.Id} {item.Title} | 目前版本：{item.CurrentDescription} | 驗收條件：{string.Join("、", item.AcceptanceCriteria)} | 建議指派：{item.SuggestedEngineer}"));
+
+    private static string FormatActiveSource(PersistentMemoryRecord? source)
+        => source is null
+            ? "無"
+            : $"{source.Id} | {source.Title} | {source.Summary}";
+
+    private static string FormatActiveWorkItem(WorkItemRecord? workItem)
+        => workItem is null
+            ? "無"
+            : $"{workItem.Id} | {workItem.Title} | 目前版本：{workItem.CurrentDescription} | 驗收條件：{string.Join("、", workItem.AcceptanceCriteria)}";
 
     private static string BuildFallbackFormalizedOutput(PersistentMemoryRecord source)
     {
@@ -297,6 +343,13 @@ Session 摘要：{request.SessionSummary}";
         public List<TaskDto>? Tasks { get; init; }
         public List<AssignmentDto>? Assignments { get; init; }
         public List<WorkItemDto>? WorkItems { get; init; }
+    }
+
+    private sealed class DiscussionResponse
+    {
+        public string? Reply { get; init; }
+        public List<string>? ReferencedWorkItemIds { get; init; }
+        public List<string>? SuggestedNextActions { get; init; }
     }
 
     private sealed class WorkItemRevisionResponse
