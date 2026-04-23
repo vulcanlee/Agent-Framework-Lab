@@ -14,10 +14,10 @@ public class MemoryRecallServiceTests
         {
             new PersistentMemoryRecord(
                 "source-001",
-                "會員註冊需求",
-                "整理會員註冊與 email 驗證",
-                "會議逐字稿 A",
-                ["會員", "註冊"],
+                "會員驗證需求",
+                "處理會員登入與 email 驗證。",
+                "原始需求 A",
+                ["會員", "驗證"],
                 [],
                 [],
                 [],
@@ -27,8 +27,8 @@ public class MemoryRecallServiceTests
             new PersistentMemoryRecord(
                 "source-002",
                 "會員權限需求",
-                "整理角色與權限控制",
-                "會議逐字稿 B",
+                "整理角色權限與後台管理需求。",
+                "原始需求 B",
                 ["會員", "權限"],
                 [],
                 [],
@@ -38,11 +38,12 @@ public class MemoryRecallServiceTests
                 DateTimeOffset.UtcNow)
         };
 
-        var recalled = await service.RecallRelevantMemoriesAsync("請延伸之前討論過的角色與權限控制需求", memories, CancellationToken.None);
+        var recalled = await service.RecallRelevantMemoriesAsync("想討論會員後台的權限設定", memories, CancellationToken.None);
 
         Assert.Single(recalled);
         Assert.Equal("source-002", recalled[0].Id);
-        Assert.Equal(["source-002"], evaluator.CandidateIds);
+        Assert.Contains("source-002", evaluator.CandidateIds);
+        Assert.Equal(2, evaluator.CandidateIds.Count);
     }
 
     private sealed class FakeMemoryRelevanceEvaluator(params string[] approvedIds) : IMemoryRelevanceEvaluator

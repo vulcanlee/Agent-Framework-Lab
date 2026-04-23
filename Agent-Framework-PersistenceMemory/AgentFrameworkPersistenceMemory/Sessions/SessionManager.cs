@@ -35,6 +35,12 @@ public sealed class SessionManager
         Current.ActiveSourceId = sourceId;
     }
 
+    public void ClearActiveSource()
+    {
+        Current.ActiveSourceId = null;
+        Current.ActiveWorkItemId = null;
+    }
+
     public void SetActiveWorkItem(string workItemId)
     {
         Current.ActiveWorkItemId = workItemId;
@@ -65,6 +71,12 @@ public sealed class SessionManager
         Current.IsIngestMode = false;
         Current.IngestBuffer.Clear();
         return text;
+    }
+
+    public void CancelIngestMode()
+    {
+        Current.IsIngestMode = false;
+        Current.IngestBuffer.Clear();
     }
 
     public void NewSession()

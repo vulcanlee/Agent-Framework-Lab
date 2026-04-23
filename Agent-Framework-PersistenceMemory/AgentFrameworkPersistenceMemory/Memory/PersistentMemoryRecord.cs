@@ -28,3 +28,9 @@ public sealed record WorkItemRecord(
     string SuggestedEngineer,
     string FinalizedDescription,
     string Status);
+
+public sealed record ManualWorkItemDraft(
+    string Title,
+    string Description,
+    string SuggestedEngineer,
+    IReadOnlyList<string> AcceptanceCriteria);

@@ -8,6 +8,12 @@ public interface IPmWorkflow
 
     Task<WorkItemRecord> ReviseWorkItemAsync(string sourceId, string workItemId, string feedback, CancellationToken cancellationToken);
 
+    Task<WorkItemRecord> AddWorkItemAsync(string sourceId, ManualWorkItemDraft draft, CancellationToken cancellationToken);
+
+    Task RemoveWorkItemAsync(string sourceId, string workItemId, CancellationToken cancellationToken);
+
+    Task RemoveSourceAsync(string sourceId, CancellationToken cancellationToken);
+
     Task<string> FinalizeSourceAsync(string sourceId, string? savePath, CancellationToken cancellationToken);
 
     Task<PersistentMemoryRecord> GetSourceAsync(string sourceId, CancellationToken cancellationToken);

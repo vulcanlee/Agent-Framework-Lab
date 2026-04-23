@@ -35,8 +35,8 @@ public static class AppBootstrapper
         var workflow = new PmWorkflow(
             memoryStore,
             sessionManager,
-            new MemoryRecallService(new GitHubModelsMemoryRelevanceEvaluator(modelsClient)),
-            new AgentFrameworkPmAgentService(modelsClient),
+            new MemoryRecallService(new GitHubModelsMemoryRelevanceEvaluator(modelsClient, reporter)),
+            new AgentFrameworkPmAgentService(modelsClient, reporter),
             reporter,
             EngineerRoster.Default);
 

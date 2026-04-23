@@ -41,7 +41,7 @@ public sealed class PersistentMemoryStore
         }
 
         var json = JsonSerializer.Serialize(records, JsonOptions);
-        await File.WriteAllTextAsync(_filePath, json, new UTF8Encoding(encoderShouldEmitUTF8Identifier: false), cancellationToken);
+        await File.WriteAllTextAsync(_filePath, json, new UTF8Encoding(false), cancellationToken);
     }
 
     public async Task UpsertAsync(PersistentMemoryRecord record, CancellationToken cancellationToken)
@@ -57,6 +57,31 @@ public sealed class PersistentMemoryStore
         {
             records.Add(record);
         }
+
+        await SaveAsync(records, cancellationToken);
+    }
+
+    public async Task RemoveAsync(string sourceId, CancellationToken cancellationToken)
+    {
+        var records = (await LoadAsync(cancellationToken)).ToList();
+        records.RemoveAll(record => string.Equals(record.Id, sourceId, StringComparison.OrdinalIgnoreCase));
+        await SaveAsync(records, cancellationToken);
+    }
+
+    public async Task ReplaceWorkItemsAsync(string sourceId, IReadOnlyList<WorkItemRecord> workItems, CancellationToken cancellationToken)
+    {
+        var records = (await LoadAsync(cancellationToken)).ToList();
+        var index = records.FindIndex(existing => string.Equals(existing.Id, sourceId, StringComparison.OrdinalIgnoreCase));
+        if (index < 0)
+        {
+            throw new UserFacingException($"找不到來源 {sourceId}。");
+        }
+
+        records[index] = records[index] with
+        {
+            WorkItems = workItems,
+            UpdatedAt = DateTimeOffset.UtcNow
+        };
 
         await SaveAsync(records, cancellationToken);
     }

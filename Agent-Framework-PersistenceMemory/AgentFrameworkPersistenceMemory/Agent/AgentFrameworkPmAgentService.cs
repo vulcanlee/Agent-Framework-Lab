@@ -3,6 +3,7 @@ using System.Text.Json;
 using System.Text.RegularExpressions;
 using AgentFrameworkPersistenceMemory.Infrastructure;
 using AgentFrameworkPersistenceMemory.Memory;
+using AgentFrameworkPersistenceMemory.Status;
 using Microsoft.Agents.AI;
 
 namespace AgentFrameworkPersistenceMemory.Agent;
@@ -11,11 +12,14 @@ public sealed class AgentFrameworkPmAgentService : IPmAgentService
 {
     private readonly IGitHubModelsClient _client;
     private readonly PmAgentFrameworkAgent _agent;
+    private readonly AgentStatusReporter _statusReporter;
     private AgentSession? _session;
+    private ModelUsage _lastUsage = new(0, 0, 0);
 
-    public AgentFrameworkPmAgentService(IGitHubModelsClient client)
+    public AgentFrameworkPmAgentService(IGitHubModelsClient client, AgentStatusReporter statusReporter)
     {
         _client = client;
+        _statusReporter = statusReporter;
         _agent = new PmAgentFrameworkAgent("PM Agent", CompletePromptAsync);
     }
 
@@ -72,7 +76,7 @@ public sealed class AgentFrameworkPmAgentService : IPmAgentService
 
         return IsFaithfulToSource(sourceKeywords, BuildIngestValidationText(result))
             ? result
-            : BuildFallbackIngestResult(request.RawInput, sourceKeywords);
+            : BuildFallbackIngestResult(sourceKeywords);
     }
 
     public async Task<WorkItemRevisionResult> ReviseWorkItemAsync(WorkItemRevisionRequest request, CancellationToken cancellationToken)
@@ -170,11 +174,12 @@ Session 摘要：{request.SessionSummary}";
     {
         _session ??= await _agent.CreateSessionAsync(cancellationToken);
         var content = await _agent.RunAsync(prompt, _session, cancellationToken: cancellationToken);
+        _statusReporter.ReportTokenUsage(_lastUsage);
         var parsed = JsonSerializer.Deserialize<T>(content.Text, new JsonSerializerOptions(JsonSerializerDefaults.Web));
         return parsed ?? throw new InvalidOperationException("PM Agent 回傳的 JSON 無法解析。");
     }
 
-    private Task<string> CompletePromptAsync(string prompt, CancellationToken cancellationToken)
+    private async Task<string> CompletePromptAsync(string prompt, CancellationToken cancellationToken)
     {
         const string systemPrompt = """
 你是負責產品需求分析的 PM Agent。
@@ -182,7 +187,10 @@ Session 摘要：{request.SessionSummary}";
 不能把需求改寫成其他主題，不能捏造不存在的功能，也不能輸出 JSON 以外的內容。
 如果資訊不足，請明確指出需要重新確認，而不是自行補成別的題目。
 """;
-        return _client.CompleteAsync(systemPrompt, prompt, cancellationToken);
+
+        var completion = await _client.CompleteAsync(systemPrompt, prompt, cancellationToken);
+        _lastUsage = completion.Usage;
+        return completion.Content;
     }
 
     private static string FormatRecalledMemories(IReadOnlyList<PersistentMemoryRecord> memories)
@@ -260,7 +268,7 @@ Session 摘要：{request.SessionSummary}";
         return $"{result.Title}\n{result.Summary}\n{workItemText}";
     }
 
-    private static IngestSourceResult BuildFallbackIngestResult(string rawInput, IReadOnlyList<string> sourceKeywords)
+    private static IngestSourceResult BuildFallbackIngestResult(IReadOnlyList<string> sourceKeywords)
     {
         var topic = sourceKeywords.Count == 0 ? "原始需求" : string.Join("、", sourceKeywords.Take(3));
         var summary = $"模型輸出與原始需求關鍵詞不一致，請重新確認以下主題：{topic}。目前先保留為待確認需求，避免誤拆成其他題目。";

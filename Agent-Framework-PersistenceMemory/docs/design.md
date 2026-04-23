@@ -2,88 +2,80 @@
 
 ## 核心目標
 
-這個專案要示範一個簡單、容易寫成技術文章的 PM Agent：
+這個專案示範一個極簡 PM Agent：
 
-- 用 REPL 接收原始需求
-- 拆成可討論的 `work item`
-- 允許逐項檢討與修正
-- 最後輸出正式工作需求清單
-- 用永久記憶保存跨 session 的需求背景
+- 以 REPL 接收需求
+- 拆成 `source + work item`
+- 支援持續檢討、手動新增、刪除
+- 輸出正式工作需求清單
+- 保存跨 session 的永久記憶
 
 ## 主要元件
 
 ### `PmConsoleApp`
 
-- REPL 入口
-- 負責 slash command 解析
-- 處理 ingest 貼上模式
-- 攔截可恢復的 user-facing 錯誤，避免整個程式退出
+- slash command 解析
+- ingest 貼上模式與檔案模式
+- `/source remove`
+- `/work add`、`/work remove`
+- user-facing 錯誤攔截
 
 ### `PmWorkflow`
 
-- 串接 session、memory recall、Agent 分析與記憶保存
-- 負責 source ingest、work item revise、finalize
-- 輸出每個主要步驟的狀態訊息
+- 串接 session、memory recall、Agent 分析與持久化
+- 管理 source ingest、work item revise、work item add/remove、source remove、finalize
 
-### `AgentFrameworkPmAgentService`
+### `GitHubModelsClient`
 
-- 用 `Microsoft.Agents.AI.Abstractions` 的 agent/session 包裝 GitHub Models 呼叫
-- 提供三種分析入口：
-  - ingest source
-  - revise work item
-  - finalize source
-- 內建「忠於原始需求」的 prompt 規則與偏題 fallback
+- 呼叫 GitHub Models chat completions
+- 回傳內容與 usage
+- 將 usage 轉成 `input / output / other`
 
-### `PersistentMemoryStore`
+### `AgentStatusReporter`
 
-- 以 UTF-8 JSON 讀寫永久記憶
-- 保存 `source`、`work item`、`formalized output`
+- 顯示工作流程狀態
+- 顯示每次 LLM 互動的 token 使用量
 
-### `SessionManager`
+## 記憶模型
 
-- 保存短期上下文
-- 管理 active source、active work item、ingest buffer
+### `source`
 
-## 忠實度保護
+- 原始需求全文
+- 標題與摘要
+- keywords / decisions / tasks / assignments
+- work items
+- finalized output
 
-這一版特別處理模型偏題問題：
+### `work item`
 
-- prompt 強制要求只能根據原始材料與既有 work item 回答
-- 先抽取 source keywords，再檢查模型輸出是否仍保留這些關鍵詞
-- 若輸出偏離原始主題，ingest 會退回成「需要重新確認的需求」
-- finalize 若偏題，會改用本地保存的 work item 生成保守版正式清單
+- 穩定編號，例如 `W1`
+- original / current / finalized description
+- discussion notes / revision suggestions
+- acceptance criteria
+- suggested engineer
+- status
 
-## UTF-8 策略
+## 新增能力
 
-- 程式啟動時設定 `Console.InputEncoding`、`Console.OutputEncoding` 為 UTF-8
-- 輸入會做 BOM 去除與 `NormalizationForm.FormC` 正規化
-- JSON 與正式輸出檔案都用 UTF-8 寫入
-- README 與 docs 同步維持 UTF-8
+### source 硬刪除
 
-## 非致命錯誤處理
+- `/source remove <source-id>`
+- 直接從永久記憶移除整筆 source
+- 若正好是 active source，會同步清掉 active source / active work item
 
-`work-id` 或 `source-id` 找不到時，屬於互動錯誤，不是系統啟動錯誤。
+### work item 手動新增與刪除
 
-預期行為：
+- `/work add ...` 直接寫入目前 active source
+- `/work remove <work-id>` 只刪除單一 work item
+- 編號使用下一個可用號碼，不重排現有編號
 
-```text
-/work review w5
-找不到工作項目 w5。
+### 檔案 ingest
 
-/work update w5 測試修正
-找不到工作項目 w5。
-```
+- `/ingest <path>` 直接從 UTF-8 檔案讀入
+- 與貼上模式共用同一條 ingest workflow
 
-REPL 在這種情況下要繼續可用，不能掉到外層 `啟動失敗`。
+### Token usage 顯示
 
-## 狀態訊息
-
-為了讓技術文章讀者看懂 Agent 內部流程，每次關鍵步驟都會輸出狀態，例如：
-
-- 正在檢查目前 session 上下文
-- 正在搜尋可能相關的永久記憶
-- 正在判斷哪些歷史需求與本次問題相關
-- 正在整理原始需求並拆解工作項目
-- 正在檢討並修正工作項目 W1
-- 正在彙整正式工作需求清單
-- 正在寫回永久記憶
+- recall relevance 若走 LLM，會顯示一次 usage
+- ingest / revise / finalize 各自顯示一次 usage
+- `other` 優先取 API 其他 usage 欄位，否則用 `total - input - output`，再不行就顯示 `0`

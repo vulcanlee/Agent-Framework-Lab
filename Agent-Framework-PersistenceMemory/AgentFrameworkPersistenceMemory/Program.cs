@@ -1,8 +1,8 @@
 using System.Text;
 using AgentFrameworkPersistenceMemory;
 
-Console.InputEncoding = new UTF8Encoding(encoderShouldEmitUTF8Identifier: false);
-Console.OutputEncoding = new UTF8Encoding(encoderShouldEmitUTF8Identifier: false);
+Console.InputEncoding = new UTF8Encoding(false);
+Console.OutputEncoding = new UTF8Encoding(false);
 
 var cancellationSource = new CancellationTokenSource();
 Console.CancelKeyPress += (_, eventArgs) =>

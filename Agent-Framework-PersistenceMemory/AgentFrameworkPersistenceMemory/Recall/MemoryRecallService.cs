@@ -4,7 +4,7 @@ namespace AgentFrameworkPersistenceMemory.Recall;
 
 public sealed class MemoryRecallService(IMemoryRelevanceEvaluator evaluator)
 {
-    private static readonly char[] TokenSeparators = [' ', '\t', '\r', '\n', '，', ',', '。', '、', '：', ':', '；', ';', '的', '與', '及'];
+    private static readonly char[] TokenSeparators = [' ', '\t', '\r', '\n', ',', '，', '。', '：', ':', ';', '；', '/', '\\'];
     private readonly IMemoryRelevanceEvaluator _evaluator = evaluator;
 
     public async Task<IReadOnlyList<PersistentMemoryRecord>> RecallRelevantMemoriesAsync(

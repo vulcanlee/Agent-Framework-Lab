@@ -2,54 +2,28 @@
 
 ## 目標
 
-建立一個極簡 PM Agent 範例，完整展示下面這條流程：
+讓這個 PM Agent 範例具備更完整的 REPL 管理能力：
 
-`原始需求匯入 -> 工作拆解 -> 逐項討論修正 -> 正式清單輸出 -> 永久記憶保存`
+- 刪除整個 source
+- 刪除 work item
+- 手動新增 work item
+- 從文字檔 ingest
+- 顯示每次 LLM 互動的 token 使用量
 
-## 目前已實作
+## 已實作能力
 
-- Console REPL 與 slash commands
-- `/ingest` / `/end` 貼上模式
-- `source + work item` 記憶模型
-- 自然語言修正與 `/work update`
-- `/finalize` 正式工作需求清單輸出
-- UTF-8 JSON 永久記憶
-- Windows UTF-8 主控台設定
-- work-id 找不到時的非致命錯誤處理
-- Agent 狀態訊息輸出
-- README 與 docs 同步更新
-
-## 本版特別補強的問題
-
-### 1. 模型偏題
-
-先前真實測試時，使用者輸入的是會員管理後台、角色權限與審計紀錄，但模型可能輸出成 Email 驗證流程。這版已加入：
-
-- 更嚴格的 prompt
-- 關鍵詞忠實度檢查
-- 偏題時的保守 fallback
-
-### 2. UTF-8 輸入穩定性
-
-先前在 Windows 管線輸入時曾出現 `????`。這版已補上：
-
-- `Console.InputEncoding`
-- `Console.OutputEncoding`
-- BOM 去除
-- 輸入文字正規化
-
-### 3. work-id 找不到導致程式退出
-
-先前 `/work update w5 ...` 可能把錯誤一路拋到外層，出現 `啟動失敗`。現在改成：
-
-- `UserFacingException`
-- REPL 內攔截並顯示友善訊息
-- 主流程不中止
+- `/source remove <source-id>`
+- `/work remove <work-id>`
+- `/work add <title> --desc <description> [--owner <engineer>] [--accept <item1;item2>]`
+- `/ingest <text-file-path>`
+- GitHub Models usage 解析與顯示
+- README / docs 同步更新
 
 ## 驗證重點
 
-- 中文輸入、JSON、正式輸出檔案都不亂碼
-- `/help` 在 BOM 輸入下仍可辨識
-- `/work review w5`、`/work update w5 ...` 都不會讓程式退出
-- 模型偏題時會回退成待確認需求或保守正式清單
-- README 與 docs 範例可對應實際 REPL 行為
+- 刪除 active source 後 session 狀態會一起清掉
+- work item 手動新增後會出現在 finalize 結果
+- work item 刪除不會重排編號
+- 文字檔 ingest 能正確讀取 UTF-8 中文
+- 每次 LLM 呼叫後都會看到 `Token 使用量：input=..., output=..., other=...`
+- `work-id` 或 `source-id` 找不到時，只回報錯誤，不中止 REPL

@@ -45,4 +45,23 @@ public class PersistentMemoryStoreTests
         Assert.Single(loaded[0].WorkItems);
         Assert.Equal("建立會員角色權限設定，並加入 email 通知", loaded[0].WorkItems[0].CurrentDescription);
     }
+
+    [Fact]
+    public async Task RemoveAsync_RemovesOnlySpecifiedSource()
+    {
+        var tempPath = Path.Combine(Path.GetTempPath(), $"{Guid.NewGuid():N}.json");
+        var store = new PersistentMemoryStore(tempPath);
+        await store.SaveAsync(
+            [
+                new PersistentMemoryRecord("source-001", "A", "A", "A", [], [], [], [], [], null, DateTimeOffset.UtcNow),
+                new PersistentMemoryRecord("source-002", "B", "B", "B", [], [], [], [], [], null, DateTimeOffset.UtcNow)
+            ],
+            CancellationToken.None);
+
+        await store.RemoveAsync("source-001", CancellationToken.None);
+        var loaded = await store.LoadAsync(CancellationToken.None);
+
+        Assert.Single(loaded);
+        Assert.Equal("source-002", loaded[0].Id);
+    }
 }

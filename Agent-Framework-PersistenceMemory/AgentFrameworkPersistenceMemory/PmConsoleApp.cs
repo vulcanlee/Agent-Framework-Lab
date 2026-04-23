@@ -82,6 +82,19 @@ public sealed partial class PmConsoleApp(
 
     private async Task HandleCommandAsync(string commandLine, CancellationToken cancellationToken)
     {
+        if (commandLine.StartsWith("/ingest ", StringComparison.OrdinalIgnoreCase))
+        {
+            var filePath = commandLine["/ingest".Length..].Trim();
+            await IngestFromFileAsync(filePath, cancellationToken);
+            return;
+        }
+
+        if (commandLine.StartsWith("/work add ", StringComparison.OrdinalIgnoreCase))
+        {
+            await HandleWorkAddCommandAsync(commandLine, cancellationToken);
+            return;
+        }
+
         var parts = commandLine.Split(' ', 4, StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries);
         var command = parts[0];
 
@@ -110,6 +123,9 @@ public sealed partial class PmConsoleApp(
             case "/work":
                 await HandleWorkCommandAsync(parts, cancellationToken);
                 return;
+            case "/source":
+                await HandleSourceCommandAsync(parts, cancellationToken);
+                return;
             case "/finalize":
                 await HandleFinalizeCommandAsync(commandLine, parts, cancellationToken);
                 return;
@@ -119,15 +135,27 @@ public sealed partial class PmConsoleApp(
         }
     }
 
+    private async Task HandleSourceCommandAsync(string[] parts, CancellationToken cancellationToken)
+    {
+        if (parts.Length < 3 || !string.Equals(parts[1], "remove", StringComparison.OrdinalIgnoreCase))
+        {
+            await _output.WriteLineAsync("用法：/source remove <source-id>");
+            return;
+        }
+
+        await _workflow.RemoveSourceAsync(parts[2], cancellationToken);
+        await _output.WriteLineAsync($"已移除來源 {parts[2]}。");
+    }
+
     private async Task HandleWorkCommandAsync(string[] parts, CancellationToken cancellationToken)
     {
         if (parts.Length < 2)
         {
-            await _output.WriteLineAsync("用法：/work list [source-id]、/work review <work-id>、/work update <work-id> <修正內容>");
+            await _output.WriteLineAsync("用法：/work list [source-id]、/work review <work-id>、/work update <work-id> <修正內容>、/work remove <work-id>、/work add <title> --desc <description> [--owner <engineer>] [--accept <item1;item2>]");
             return;
         }
 
-        switch (parts[1])
+        switch (parts[1].ToLowerInvariant())
         {
             case "list":
             {
@@ -151,13 +179,8 @@ public sealed partial class PmConsoleApp(
                     return;
                 }
 
-                if (string.IsNullOrWhiteSpace(_sessionManager.Current.ActiveSourceId))
-                {
-                    await _output.WriteLineAsync("請先使用 /work list <source-id> 載入來源。");
-                    return;
-                }
-
-                var activeSource = await _workflow.GetSourceAsync(_sessionManager.Current.ActiveSourceId!, cancellationToken);
+                var sourceId = RequireActiveSource();
+                var activeSource = await _workflow.GetSourceAsync(sourceId, cancellationToken);
                 var workItem = activeSource.WorkItems.FirstOrDefault(item => string.Equals(item.Id, parts[2], StringComparison.OrdinalIgnoreCase));
                 if (workItem is null)
                 {
@@ -177,21 +200,65 @@ public sealed partial class PmConsoleApp(
                     return;
                 }
 
-                if (string.IsNullOrWhiteSpace(_sessionManager.Current.ActiveSourceId))
-                {
-                    await _output.WriteLineAsync("請先使用 /work list <source-id> 載入來源。");
-                    return;
-                }
-
-                var updated = await _workflow.ReviseWorkItemAsync(_sessionManager.Current.ActiveSourceId!, parts[2], parts[3], cancellationToken);
+                var sourceId = RequireActiveSource();
+                var updated = await _workflow.ReviseWorkItemAsync(sourceId, parts[2], parts[3], cancellationToken);
                 _sessionManager.SetActiveWorkItem(updated.Id);
                 await _output.WriteLineAsync($"已更新 {updated.Id}：{updated.CurrentDescription}");
                 return;
             }
+            case "remove":
+            {
+                if (parts.Length < 3)
+                {
+                    await _output.WriteLineAsync("用法：/work remove <work-id>");
+                    return;
+                }
+
+                var sourceId = RequireActiveSource();
+                await _workflow.RemoveWorkItemAsync(sourceId, parts[2], cancellationToken);
+                await _output.WriteLineAsync($"已移除工作項目 {parts[2]}。");
+                return;
+            }
             default:
-                await _output.WriteLineAsync("用法：/work list [source-id]、/work review <work-id>、/work update <work-id> <修正內容>");
+                await _output.WriteLineAsync("用法：/work list [source-id]、/work review <work-id>、/work update <work-id> <修正內容>、/work remove <work-id>、/work add <title> --desc <description> [--owner <engineer>] [--accept <item1;item2>]");
                 return;
         }
+    }
+
+    private async Task HandleWorkAddCommandAsync(string commandLine, CancellationToken cancellationToken)
+    {
+        var sourceId = RequireActiveSource();
+        var spec = commandLine["/work add".Length..].Trim();
+
+        var descIndex = spec.IndexOf(" --desc ", StringComparison.OrdinalIgnoreCase);
+        if (descIndex <= 0)
+        {
+            await _output.WriteLineAsync("用法：/work add <title> --desc <description> [--owner <engineer>] [--accept <item1;item2>]");
+            return;
+        }
+
+        var title = spec[..descIndex].Trim();
+        var optionText = spec[descIndex..];
+        var description = ExtractOption(optionText, "--desc");
+        if (string.IsNullOrWhiteSpace(title) || string.IsNullOrWhiteSpace(description))
+        {
+            await _output.WriteLineAsync("新增工作項目時，title 與 --desc 都是必填。");
+            return;
+        }
+
+        var owner = ExtractOption(optionText, "--owner");
+        var accept = ExtractOption(optionText, "--accept");
+        var acceptanceCriteria = string.IsNullOrWhiteSpace(accept)
+            ? []
+            : accept.Split(';', StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries);
+
+        var workItem = await _workflow.AddWorkItemAsync(
+            sourceId,
+            new ManualWorkItemDraft(title, description, string.IsNullOrWhiteSpace(owner) ? "Backend" : owner, acceptanceCriteria),
+            cancellationToken);
+
+        _sessionManager.SetActiveWorkItem(workItem.Id);
+        await _output.WriteLineAsync($"已新增工作項目 {workItem.Id}：{workItem.Title}");
     }
 
     private async Task HandleFinalizeCommandAsync(string commandLine, string[] parts, CancellationToken cancellationToken)
@@ -235,6 +302,46 @@ public sealed partial class PmConsoleApp(
         await _output.WriteLineAsync(FormatWorkList(source));
     }
 
+    private async Task IngestFromFileAsync(string filePath, CancellationToken cancellationToken)
+    {
+        if (string.IsNullOrWhiteSpace(filePath))
+        {
+            await _output.WriteLineAsync("請提供文字檔路徑，例如 /ingest docs/sample.txt");
+            return;
+        }
+
+        var fullPath = Path.GetFullPath(filePath);
+        if (!File.Exists(fullPath))
+        {
+            await _output.WriteLineAsync($"找不到檔案 {filePath}。");
+            return;
+        }
+
+        string rawInput;
+        try
+        {
+            rawInput = await File.ReadAllTextAsync(fullPath, new UTF8Encoding(false), cancellationToken);
+        }
+        catch (Exception ex)
+        {
+            await _output.WriteLineAsync($"讀取檔案失敗：{ex.Message}");
+            return;
+        }
+
+        if (string.IsNullOrWhiteSpace(rawInput))
+        {
+            await _output.WriteLineAsync("指定的文字檔沒有內容。");
+            return;
+        }
+
+        _sessionManager.CancelIngestMode();
+        var source = await _workflow.IngestSourceAsync(NormalizeInput(rawInput), cancellationToken);
+        _sessionManager.SetActiveSource(source.Id);
+        await _output.WriteLineAsync($"已從檔案建立來源 {source.Id}：{source.Title}");
+        await _output.WriteLineAsync($"已拆解出 {source.WorkItems.Count} 個工作項目。");
+        await _output.WriteLineAsync(FormatWorkList(source));
+    }
+
     private async Task ShowMemoryAsync(CancellationToken cancellationToken)
     {
         var memories = await _workflow.LoadMemoryAsync(cancellationToken);
@@ -250,6 +357,16 @@ public sealed partial class PmConsoleApp(
         }
     }
 
+    private string RequireActiveSource()
+    {
+        if (string.IsNullOrWhiteSpace(_sessionManager.Current.ActiveSourceId))
+        {
+            throw new UserFacingException("請先使用 /work list <source-id> 載入來源。");
+        }
+
+        return _sessionManager.Current.ActiveSourceId!;
+    }
+
     private static string? FindWorkItemId(string text)
     {
         var match = WorkItemRegex().Match(text);
@@ -258,6 +375,31 @@ public sealed partial class PmConsoleApp(
 
     private static string NormalizeInput(string input)
         => input.Trim().TrimStart('\uFEFF').Normalize(NormalizationForm.FormC);
+
+    private static string? ExtractOption(string text, string optionName)
+    {
+        var optionStart = text.IndexOf(optionName, StringComparison.OrdinalIgnoreCase);
+        if (optionStart < 0)
+        {
+            return null;
+        }
+
+        var valueStart = optionStart + optionName.Length;
+        while (valueStart < text.Length && char.IsWhiteSpace(text[valueStart]))
+        {
+            valueStart++;
+        }
+
+        var nextIndexes = new[]
+        {
+            text.IndexOf(" --desc ", valueStart, StringComparison.OrdinalIgnoreCase),
+            text.IndexOf(" --owner ", valueStart, StringComparison.OrdinalIgnoreCase),
+            text.IndexOf(" --accept ", valueStart, StringComparison.OrdinalIgnoreCase)
+        }.Where(index => index >= 0 && index > optionStart).ToList();
+
+        var valueEnd = nextIndexes.Count == 0 ? text.Length : nextIndexes.Min();
+        return text[valueStart..valueEnd].Trim();
+    }
 
     private static string FormatWorkList(PersistentMemoryRecord source)
     {
@@ -295,9 +437,17 @@ public sealed partial class PmConsoleApp(
             進入貼上模式，準備貼入原始需求
             範例：/ingest
 
+            /ingest <text-file-path>
+            從 UTF-8 文字檔讀入原始需求並直接分析
+            範例：/ingest docs/sample-requirement.txt
+
             /end
             結束貼上模式並開始拆解工作項目
             範例：/end
+
+            /source remove <source-id>
+            硬刪除來源與其全部 work item
+            範例：/source remove source-001
 
             /work list [source-id]
             列出指定來源的工作項目
@@ -310,6 +460,14 @@ public sealed partial class PmConsoleApp(
             /work update <work-id> <修正內容>
             直接更新指定工作項目的描述與驗收方向
             範例：/work update W1 加入 email 驗證與通知機制
+
+            /work remove <work-id>
+            移除指定工作項目
+            範例：/work remove W2
+
+            /work add <title> --desc <description> [--owner <engineer>] [--accept <item1;item2>]
+            手動新增工作項目
+            範例：/work add 權限異動通知 --desc 加入 email 與站內通知 --owner Backend --accept 可設定通知內容;可關閉通知
 
             /finalize <source-id> [--save <path>]
             產出正式工作需求清單，並可另存檔案
@@ -326,13 +484,6 @@ public sealed partial class PmConsoleApp(
             /new-session
             建立新的空白 session
             範例：/new-session
-
-            推薦操作流程
-            1. /ingest
-            2. 貼上原始需求內容
-            3. /end
-            4. /work review W1 後，再用自然語言或 /work update 繼續修正
-            5. /finalize source-001
             """;
     }
 }
